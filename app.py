@@ -401,11 +401,11 @@ def page_dashboard():
         df_out = run_sql("""
             SELECT o.date as 날짜, c.name as 거래처, p.name as 품목,
                    o.quantity as 수량,
-                   ROUND(o.discount_rate*100,1) as 할인율PCT,
+                   ROUND((o.discount_rate*100)::NUMERIC,1) as 할인율PCT,
                    COALESCE(o.fifo_purchase_price,0)*o.quantity as 공급가액,
                    o.total_amount as 납품금액,
                    o.margin_amount as 마진액,
-                   ROUND(o.margin_rate,2) as 마진율PCT,
+                   ROUND(o.margin_rate::NUMERIC,2) as 마진율PCT,
                    COALESCE(o.note,'') as 메모
             FROM stock_out o
             JOIN clients c ON o.client_id=c.id
@@ -421,7 +421,7 @@ def page_dashboard():
                    COALESCE(s.ts,0)-COALESCE(p.tp,0) as 미수금,
                    COALESCE(s.mg,0) as 마진액합계,
                    CASE WHEN COALESCE(s.ts,0)>0
-                        THEN ROUND(COALESCE(s.mg,0)*100.0/COALESCE(s.ts,0),2)
+                        THEN ROUND((COALESCE(s.mg,0)*100.0/COALESCE(s.ts,0))::NUMERIC,2)
                         ELSE 0 END as 평균마진율PCT
             FROM clients c
             LEFT JOIN (
@@ -445,7 +445,7 @@ def page_dashboard():
             SELECT substr(date,1,7) as 월,
                    SUM(total_amount) as 납품금액,
                    SUM(margin_amount) as 마진액,
-                   ROUND(AVG(margin_rate),2) as 평균마진율PCT
+                   ROUND(AVG(margin_rate)::NUMERIC,2) as 평균마진율PCT
             FROM stock_out WHERE type='출고' AND date BETWEEN ? AND ?
             GROUP BY 월 ORDER BY 월
         """, (frm, to_))
@@ -826,7 +826,7 @@ def page_stock_entry():
         df_edit = run_sql("""
             SELECT o.id, o.date as 날짜, c.name as 거래처, p.name as 품목,
                    o.type as 유형, o.quantity as 수량,
-                   ROUND(o.discount_rate*100,1) as 할인율PCT,
+                   ROUND((o.discount_rate*100)::NUMERIC,1) as 할인율PCT,
                    o.fifo_purchase_price as 입고단가,
                    COALESCE(o.fifo_purchase_price,0) * o.quantity as 공급가액,
                    o.total_amount as 납품금액,
@@ -1178,7 +1178,7 @@ def page_master():
         clients_df = run_sql("""
             SELECT id, name as 거래처명, category as 대분류,
                    contact as 담당자,
-                   ROUND(discount_rate*100,1) as 할인율_PCT
+                   ROUND((discount_rate*100)::NUMERIC,1) as 할인율_PCT
             FROM clients ORDER BY name
         """)
         if not clients_df.empty:
