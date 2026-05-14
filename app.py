@@ -1052,7 +1052,9 @@ def page_master():
             FROM products p
             LEFT JOIN stock_in s ON p.id=s.product_id
             LEFT JOIN products b ON p.bundle_with_id=b.id
-            GROUP BY p.id
+            GROUP BY p.id, p.name, p.product_group, p.spec,
+                     p.purchase_price, p.settlement_price, p.min_stock,
+                     p.bundle_with_id, b.name
         """)
         PRODUCT_GROUPS = ["PHA물톡스", "로즈 드 메르"]
 
