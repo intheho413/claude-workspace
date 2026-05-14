@@ -3,13 +3,30 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, datetime, timedelta
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import io
 import base64
 import json
 import hashlib
 from pathlib import Path
 from PIL import Image as _PILImage
+
+
+class PGConn:
+    """psycopg2 래퍼 — sqlite3 conn.execute() 인터페이스 호환"""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=()):
+        sql = sql.replace("?", "%s")
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql, params if params else None)
+        return cur
+
+    def commit(self):   self._conn.commit()
+    def close(self):    self._conn.close()
+    def cursor(self):   return self._conn.cursor()
 
 ADMIN_PW_HASH = hashlib.sha256("0413".encode()).hexdigest()
 
@@ -83,7 +100,6 @@ html,body,[class*="css"]{font-family:'Inter',sans-serif}
 """, unsafe_allow_html=True)
 
 # ── DB ─────────────────────────────────────────────────────────────────────
-DB_PATH       = Path(__file__).parent / "data" / "cosmetics.db"
 SETTINGS_PATH = Path(__file__).parent / "data" / "menu_settings.json"
 
 DEFAULT_SITE_NAME    = "화장품 유통 관리"
@@ -111,29 +127,30 @@ def load_menu_settings(default_menu, default_labels):
     return default_menu.copy(), default_labels.copy(), DEFAULT_SITE_NAME, DEFAULT_SITE_CAPTION, DEFAULT_SITE_ICON, "dark"
 
 def save_menu_settings(order, labels, site_name=None, site_caption=None, site_icon=None, theme=None):
-    SETTINGS_PATH.parent.mkdir(exist_ok=True)
-    existing = {}
-    if SETTINGS_PATH.exists():
-        try:
-            existing = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    existing["order"]        = order
-    existing["labels"]       = labels
-    existing["site_name"]    = site_name    if site_name    is not None else existing.get("site_name",    DEFAULT_SITE_NAME)
-    existing["site_caption"] = site_caption if site_caption is not None else existing.get("site_caption", DEFAULT_SITE_CAPTION)
-    existing["site_icon"]    = site_icon    if site_icon    is not None else existing.get("site_icon",    DEFAULT_SITE_ICON)
-    existing["theme"]        = theme        if theme        is not None else existing.get("theme",        "dark")
-    SETTINGS_PATH.write_text(
-        json.dumps(existing, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    try:
+        SETTINGS_PATH.parent.mkdir(exist_ok=True)
+        existing = {}
+        if SETTINGS_PATH.exists():
+            try:
+                existing = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        existing["order"]        = order
+        existing["labels"]       = labels
+        existing["site_name"]    = site_name    if site_name    is not None else existing.get("site_name",    DEFAULT_SITE_NAME)
+        existing["site_caption"] = site_caption if site_caption is not None else existing.get("site_caption", DEFAULT_SITE_CAPTION)
+        existing["site_icon"]    = site_icon    if site_icon    is not None else existing.get("site_icon",    DEFAULT_SITE_ICON)
+        existing["theme"]        = theme        if theme        is not None else existing.get("theme",        "dark")
+        SETTINGS_PATH.write_text(
+            json.dumps(existing, ensure_ascii=False, indent=2),
+            encoding="utf-8"
+        )
+    except Exception:
+        pass  # 클라우드 환경에서는 파일 시스템이 읽기 전용일 수 있음
 
 def get_conn():
-    DB_PATH.parent.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    url = st.secrets["database"]["url"]
+    return PGConn(psycopg2.connect(url))
 
 CATEGORY_DISCOUNT = {
     "더데이랩스": 0.20,
@@ -144,95 +161,50 @@ CATEGORIES = ["", "더데이랩스", "루트스퀘어", "비네트워크"]
 
 def init_db():
     conn = get_conn()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS products (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            spec TEXT,
-            purchase_price INTEGER DEFAULT 0,
-            sale_price INTEGER DEFAULT 0,
-            min_stock INTEGER DEFAULT 10
-        );
-        CREATE TABLE IF NOT EXISTS clients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            category TEXT DEFAULT '',
-            contact TEXT,
-            phone TEXT,
-            address TEXT,
-            credit_limit INTEGER DEFAULT 0,
-            discount_rate REAL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS stock_in (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            product_id INTEGER NOT NULL,
-            quantity INTEGER DEFAULT 0,
-            purchase_price INTEGER DEFAULT 0,
-            lot_number TEXT,
-            expiry_date TEXT,
-            remaining_qty INTEGER DEFAULT 0,
-            note TEXT,
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        );
-        CREATE TABLE IF NOT EXISTS stock_out (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            client_id INTEGER,
-            product_id INTEGER,
-            type TEXT DEFAULT '출고',
-            quantity INTEGER DEFAULT 0,
-            discount_rate REAL DEFAULT 0,
-            supply_amount INTEGER DEFAULT 0,
-            vat_amount INTEGER DEFAULT 0,
-            total_amount INTEGER DEFAULT 0,
-            fifo_purchase_price INTEGER DEFAULT 0,
-            margin_amount INTEGER DEFAULT 0,
-            margin_rate REAL DEFAULT 0,
-            note TEXT,
-            FOREIGN KEY (client_id) REFERENCES clients(id),
-            FOREIGN KEY (product_id) REFERENCES products(id)
-        );
-        CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT NOT NULL,
-            client_id INTEGER,
-            amount INTEGER DEFAULT 0,
-            linked_out_id INTEGER,
-            note TEXT,
-            FOREIGN KEY (client_id) REFERENCES clients(id)
-        );
-    """)
+    conn.execute("""CREATE TABLE IF NOT EXISTS products (
+        id SERIAL PRIMARY KEY, name TEXT NOT NULL, spec TEXT,
+        purchase_price INTEGER DEFAULT 0, sale_price INTEGER DEFAULT 0,
+        min_stock INTEGER DEFAULT 10, settlement_price INTEGER DEFAULT 0,
+        bundle_with_id INTEGER DEFAULT NULL, product_group TEXT DEFAULT '')""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS clients (
+        id SERIAL PRIMARY KEY, name TEXT NOT NULL, category TEXT DEFAULT '',
+        contact TEXT, phone TEXT, address TEXT,
+        credit_limit INTEGER DEFAULT 0, discount_rate REAL DEFAULT 0)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS stock_in (
+        id SERIAL PRIMARY KEY, date TEXT NOT NULL, product_id INTEGER NOT NULL,
+        quantity INTEGER DEFAULT 0, purchase_price INTEGER DEFAULT 0,
+        lot_number TEXT, expiry_date TEXT, remaining_qty INTEGER DEFAULT 0, note TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS stock_out (
+        id SERIAL PRIMARY KEY, date TEXT NOT NULL, client_id INTEGER, product_id INTEGER,
+        type TEXT DEFAULT '출고', quantity INTEGER DEFAULT 0, discount_rate REAL DEFAULT 0,
+        supply_amount INTEGER DEFAULT 0, vat_amount INTEGER DEFAULT 0,
+        total_amount INTEGER DEFAULT 0, fifo_purchase_price INTEGER DEFAULT 0,
+        margin_amount INTEGER DEFAULT 0, margin_rate REAL DEFAULT 0, note TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY, date TEXT NOT NULL, client_id INTEGER,
+        amount INTEGER DEFAULT 0, linked_out_id INTEGER, note TEXT)""")
     conn.commit()
-    # 기존 DB 마이그레이션
-    for sql in [
-        "ALTER TABLE clients   ADD COLUMN category          TEXT    DEFAULT ''",
-        "ALTER TABLE products  ADD COLUMN settlement_price  INTEGER DEFAULT 0",
-        "ALTER TABLE products  ADD COLUMN bundle_with_id    INTEGER DEFAULT NULL",
-        "ALTER TABLE products  ADD COLUMN product_group     TEXT    DEFAULT ''",
-    ]:
-        try:
-            conn.execute(sql); conn.commit()
-        except Exception:
-            pass
-    # settlement_price 초기값이 0인 경우 sale_price로 채우기
     conn.execute("UPDATE products SET settlement_price=sale_price WHERE settlement_price=0 AND sale_price>0")
     conn.commit()
     conn.close()
 
 def run_sql(query, params=()):
     conn = get_conn()
-    df = pd.read_sql(query, conn, params=list(params))
-    conn.close()
+    try:
+        df = pd.read_sql(query.replace("?", "%s"), conn._conn,
+                         params=list(params) if params else None)
+    finally:
+        conn.close()
     return df
 
 def execute(query, params=()):
     conn = get_conn()
-    cur = conn.execute(query, params)
-    conn.commit()
-    last_id = cur.lastrowid
-    conn.close()
-    return last_id
+    try:
+        conn.execute(query, params)
+        conn.commit()
+    finally:
+        conn.close()
+    return None
 
 def fmt(v):    return f"₩{int(v or 0):,}"
 
@@ -927,7 +899,9 @@ def page_stock_entry():
                     FROM stock_out o JOIN products p ON o.product_id=p.id
                     WHERE o.type='출고'
                 """).fetchall()
-                for oid, qty, disc, fifo, sale_p in records:
+                for record in records:
+                    oid, qty, disc, fifo, sale_p = (record["id"], record["quantity"],
+                        record["discount_rate"], record["fifo_purchase_price"], record["base_p"])
                     if sale_p <= 0:
                         continue
                     new_납품금액 = int(sale_p * qty * (1 - disc))   # 납품금액(VAT포함, 판매가 합계)
@@ -1130,8 +1104,8 @@ def page_master():
                     warn_items, safe_items = [], []
                     for name in del_sels:
                         pid = int(prods[prods["제품명"] == name].iloc[0]["id"])
-                        in_cnt  = conn_chk.execute("SELECT COUNT(*) FROM stock_in  WHERE product_id=?", (pid,)).fetchone()[0]
-                        out_cnt = conn_chk.execute("SELECT COUNT(*) FROM stock_out WHERE product_id=?", (pid,)).fetchone()[0]
+                        in_cnt  = conn_chk.execute("SELECT COUNT(*) as cnt FROM stock_in  WHERE product_id=?", (pid,)).fetchone()["cnt"]
+                        out_cnt = conn_chk.execute("SELECT COUNT(*) as cnt FROM stock_out WHERE product_id=?", (pid,)).fetchone()["cnt"]
                         if in_cnt > 0 or out_cnt > 0:
                             warn_items.append(f"• {name} (입고 {in_cnt}건 / 출고 {out_cnt}건)")
                         else:
@@ -1345,10 +1319,13 @@ with hc2:
             )
             fc1, fc2 = st.columns(2)
             if fc1.button("이미지 적용", key="apply_favicon", use_container_width=True, disabled=uploaded_favicon is None):
-                _fav_path.parent.mkdir(exist_ok=True)
-                _fav_path.write_bytes(uploaded_favicon.read())
-                st.success("파비콘 변경 완료!")
-                st.rerun()
+                try:
+                    _fav_path.parent.mkdir(exist_ok=True)
+                    _fav_path.write_bytes(uploaded_favicon.read())
+                    st.success("파비콘 변경 완료!")
+                    st.rerun()
+                except Exception:
+                    st.warning("클라우드 환경에서는 파비콘 변경이 저장되지 않습니다.")
             if fc2.button("기본 이모지로", key="reset_favicon", use_container_width=True, disabled=not _fav_path.exists()):
                 _fav_path.unlink(missing_ok=True)
                 st.rerun()
