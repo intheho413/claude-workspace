@@ -8,6 +8,44 @@ from database import init_db, get_conn
 st.set_page_config(page_title="업무 관리 대시보드", layout="wide", page_icon="📊")
 init_db()
 
+st.markdown("""
+<style>
+/* 모바일 반응형 */
+@media (max-width: 640px) {
+    [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap !important;
+    }
+    [data-testid="column"] {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        min-width: 0 !important;
+    }
+    button[kind="primaryFormSubmit"],
+    button[kind="secondary"],
+    button[kind="primary"] {
+        min-height: 44px !important;
+        font-size: 15px !important;
+    }
+    [data-testid="stMetric"] {
+        padding: 8px !important;
+    }
+    [data-testid="stMetricValue"] {
+        font-size: 18px !important;
+    }
+    .stTextInput input,
+    .stNumberInput input,
+    .stSelectbox select,
+    .stDateInput input,
+    .stTextArea textarea {
+        font-size: 16px !important;
+    }
+    [data-testid="stSidebar"] {
+        min-width: 0 !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 def fmt_money(v):
     return f"₩{int(v or 0):,}"
 
@@ -272,7 +310,7 @@ elif menu == "💰 수금 관리":
         paid_note = st.text_input("메모")
         if st.button("입금 완료 처리"):
             inv_id = inv_options[selected_inv]
-            inv_row = pd.read_sql(f"SELECT total_amount FROM invoices WHERE id={inv_id}", conn).iloc[0]
+            inv_row = pd.read_sql("SELECT total_amount FROM invoices WHERE id=%s" % int(inv_id), conn).iloc[0]
             conn.execute("INSERT INTO payments (invoice_id, paid_date, paid_amount, note) VALUES (?,?,?,?)",
                          (inv_id, str(paid_date), int(inv_row["total_amount"]), paid_note))
             conn.execute("UPDATE invoices SET status='완료' WHERE id=?", (inv_id,))

@@ -3,3 +3,4 @@ pandas
 plotly
 Pillow
 openpyxl
+psycopg2-binary
