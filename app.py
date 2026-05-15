@@ -9,19 +9,70 @@ import io
 import base64
 import json
 import hashlib
+import re as _re
+import sqlite3 as _sqlite3
 from pathlib import Path
 from PIL import Image as _PILImage
+
+_DB_PATH = Path(__file__).parent / "data" / "cosmetics.db"
+USE_LOCAL = _DB_PATH.exists()
 
 
 class PGConn:
     """psycopg2 래퍼 — sqlite3 conn.execute() 인터페이스 호환"""
-    def __init__(self, conn):
+    def __init__(self, conn, shared=False):
         self._conn = conn
+        self._shared = shared
 
     def execute(self, sql, params=()):
         sql = sql.replace("?", "%s")
         cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         cur.execute(sql, params if params else None)
+        return cur
+
+    def commit(self):
+        if not self._shared:
+            self._conn.commit()
+
+    def close(self):
+        if not self._shared:
+            self._conn.close()
+
+    def cursor(self):   return self._conn.cursor()
+
+
+class _PGPool:
+    """연결 재사용 풀 — 매 쿼리마다 새 TCP 연결을 맺지 않음"""
+    def __init__(self):
+        self._url = st.secrets["database"]["url"]
+        self._conn = None
+        self._connect()
+
+    def _connect(self):
+        self._conn = psycopg2.connect(self._url)
+        self._conn.autocommit = True
+
+    def conn(self):
+        if self._conn is None or self._conn.closed:
+            self._connect()
+        return self._conn
+
+
+@st.cache_resource(show_spinner=False)
+def _pg_pool():
+    return _PGPool()
+
+
+class SQLiteConn:
+    """sqlite3 래퍼 — PGConn과 동일한 인터페이스"""
+    def __init__(self, conn):
+        self._conn = conn
+        self._conn.row_factory = _sqlite3.Row
+
+    def execute(self, sql, params=()):
+        sql = _re.sub(r'::\w+', '', sql)
+        cur = self._conn.cursor()
+        cur.execute(sql, params if params else ())
         return cur
 
     def commit(self):   self._conn.commit()
@@ -149,8 +200,9 @@ def save_menu_settings(order, labels, site_name=None, site_caption=None, site_ic
         pass  # 클라우드 환경에서는 파일 시스템이 읽기 전용일 수 있음
 
 def get_conn():
-    url = st.secrets["database"]["url"]
-    return PGConn(psycopg2.connect(url))
+    if USE_LOCAL:
+        return SQLiteConn(_sqlite3.connect(str(_DB_PATH)))
+    return PGConn(_pg_pool().conn(), shared=True)
 
 CATEGORY_DISCOUNT = {
     "더데이랩스": 0.20,
@@ -191,8 +243,13 @@ def init_db():
 def run_sql(query, params=()):
     conn = get_conn()
     try:
-        df = pd.read_sql(query.replace("?", "%s"), conn._conn,
-                         params=list(params) if params else None)
+        if USE_LOCAL:
+            clean = _re.sub(r'::\w+', '', query)
+            df = pd.read_sql(clean, conn._conn,
+                             params=list(params) if params else None)
+        else:
+            df = pd.read_sql(query.replace("?", "%s"), conn._conn,
+                             params=list(params) if params else None)
     finally:
         conn.close()
     return df
@@ -267,13 +324,18 @@ def page_dashboard():
     this_month   = today.strftime("%Y-%m")
     this_year    = today.strftime("%Y")
 
-    def sales_sum(where, params=()):
-        return run_sql(f"SELECT COALESCE(SUM(total_amount),0) as v FROM stock_out WHERE type='출고' AND {where}", params).iloc[0]["v"]
-
-    today_sales  = sales_sum("date=?",              (today_str,))
-    week_sales   = sales_sum("date BETWEEN ? AND ?", (week_start, today_str))
-    month_sales  = sales_sum("date BETWEEN ? AND ?", (month_start, today_str))
-    year_sales   = sales_sum("date BETWEEN ? AND ?", (year_start, today_str))
+    _s = run_sql("""
+        SELECT
+            COALESCE(SUM(CASE WHEN date=? THEN total_amount END),0)              as today,
+            COALESCE(SUM(CASE WHEN date BETWEEN ? AND ? THEN total_amount END),0) as week,
+            COALESCE(SUM(CASE WHEN date BETWEEN ? AND ? THEN total_amount END),0) as month,
+            COALESCE(SUM(CASE WHEN date BETWEEN ? AND ? THEN total_amount END),0) as year
+        FROM stock_out WHERE type='출고'
+    """, (today_str, week_start, today_str, month_start, today_str, year_start, today_str)).iloc[0]
+    today_sales  = _s["today"]
+    week_sales   = _s["week"]
+    month_sales  = _s["month"]
+    year_sales   = _s["year"]
 
     total_recv   = run_sql("""
         SELECT
