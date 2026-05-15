@@ -658,7 +658,7 @@ def page_stock_entry():
             qty_add   = ia.number_input("수량", min_value=1, value=1, key="in_qty_add")
             price_add = ib.number_input(
                 "입고가", min_value=0, step=1000,
-                value=0,
+                value=int(prod_row["purchase_price"]),
                 key=f"in_price_{prod_sel}"
             )
             if st.button("➕ 목록에 추가", key="in_add_btn", use_container_width=True):
