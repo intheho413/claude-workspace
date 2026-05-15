@@ -523,6 +523,16 @@ def page_dashboard():
             GROUP BY p.id ORDER BY p.name
         """)
 
+        df_in = run_sql("""
+            SELECT s.date as 날짜, p.name as 품목,
+                   s.quantity as 수량,
+                   s.purchase_price as 단가,
+                   s.quantity * s.purchase_price as 합계VAT
+            FROM stock_in s JOIN products p ON s.product_id=p.id
+            WHERE s.date BETWEEN ? AND ?
+            ORDER BY s.date, p.name
+        """, (frm, to_))
+
         # ── 워크북 생성 ──
         wb = Workbook()
 
@@ -553,28 +563,59 @@ def page_dashboard():
                 max_len = max((len(str(cell.value or "")) for cell in col), default=0)
                 ws.column_dimensions[get_column_letter(col[0].column)].width = min(max_len + 4, 30)
 
-        # ── 시트1: 출고 상세 ──
-        ws1 = wb.active; ws1.title = "출고 상세"
-        ws1.append(["날짜","거래처","품목","수량","할인율(%)","공급가액","납품금액","마진액","마진율(%)","메모"])
-        style_header(ws1, 1, 10)
+        # ── 시트1: 입고 상세 ──
+        ws_in = wb.active; ws_in.title = "입고 상세"
+        ws_in.append(["날짜","품목","수량","단가","입고가액(공급가액)","부가세","합계"])
+        style_header(ws_in, 1, 7)
+        tot_in_공급 = tot_in_vat = tot_in_합계 = 0
+        for _, r in df_in.iterrows():
+            합계  = int(r["합계VAT"])
+            공급가액 = round(합계 / 1.1)
+            부가세   = 합계 - 공급가액
+            ws_in.append([r["날짜"], r["품목"], int(r["수량"]), int(r["단가"]),
+                          공급가액, 부가세, 합계])
+            style_row(ws_in, ws_in.max_row, 7)
+            tot_in_공급 += 공급가액; tot_in_vat += 부가세; tot_in_합계 += 합계
+        if not df_in.empty:
+            tr = ws_in.max_row + 1
+            ws_in.cell(tr,1,"합계"); ws_in.cell(tr,3,int(df_in["수량"].sum()))
+            ws_in.cell(tr,5,tot_in_공급); ws_in.cell(tr,6,tot_in_vat); ws_in.cell(tr,7,tot_in_합계)
+            style_row(ws_in, tr, 7, total_fill)
+            ws_in.cell(tr,1).font = Font(bold=True)
+        auto_width(ws_in)
+
+        # ── 시트2: 출고 상세 ──
+        ws1 = wb.create_sheet("출고 상세")
+        ws1.append(["날짜","거래처","품목","수량","할인율(%)",
+                    "출고가액(공급가액)","부가세","합계(납품금액)",
+                    "매입원가합계","마진액","마진율(%)","메모"])
+        style_header(ws1, 1, 12)
+        tot_공급 = tot_vat = tot_합계 = tot_매입 = tot_마진 = 0
         for _, r in df_out.iterrows():
+            합계    = int(r["납품금액"])
+            출고가액 = round(합계 / 1.1)
+            부가세   = 합계 - 출고가액
+            매입원가 = int(r["공급가액"])
+            마진액   = int(r["마진액"])
+            마진율   = float(r["마진율PCT"])
             ws1.append([r["날짜"], r["거래처"], r["품목"], int(r["수량"]),
                         float(r["할인율PCT"]),
-                        int(r["공급가액"]), int(r["납품금액"]),
-                        int(r["마진액"]), float(r["마진율PCT"]), r["메모"]])
-            style_row(ws1, ws1.max_row, 10)
-        # 합계행
+                        출고가액, 부가세, 합계,
+                        매입원가, 마진액, 마진율, r["메모"]])
+            style_row(ws1, ws1.max_row, 12)
+            tot_공급 += 출고가액; tot_vat += 부가세; tot_합계 += 합계
+            tot_매입 += 매입원가; tot_마진 += 마진액
         if not df_out.empty:
             tr = ws1.max_row + 1
             ws1.cell(tr,1,"합계"); ws1.cell(tr,4,int(df_out["수량"].sum()))
-            ws1.cell(tr,6,int(df_out["공급가액"].sum()))
-            ws1.cell(tr,7,int(df_out["납품금액"].sum()))
-            ws1.cell(tr,8,int(df_out["마진액"].sum()))
-            style_row(ws1, tr, 10, total_fill)
+            ws1.cell(tr,6,tot_공급); ws1.cell(tr,7,tot_vat); ws1.cell(tr,8,tot_합계)
+            ws1.cell(tr,9,tot_매입); ws1.cell(tr,10,tot_마진)
+            ws1.cell(tr,11, round(tot_마진/tot_합계*100, 2) if tot_합계 else 0)
+            style_row(ws1, tr, 12, total_fill)
             ws1.cell(tr,1).font = Font(bold=True)
         auto_width(ws1)
 
-        # ── 시트2: 거래처별 요약 ──
+        # ── 시트3: 거래처별 요약 ──
         ws2 = wb.create_sheet("거래처별 요약")
         ws2.append(["거래처","납품금액합계","수금액합계","미수금","마진액합계","평균마진율(%)"])
         style_header(ws2, 1, 6)
@@ -591,7 +632,7 @@ def page_dashboard():
             ws2.cell(tr,1).font = Font(bold=True)
         auto_width(ws2)
 
-        # ── 시트3: 월별 매출 ──
+        # ── 시트4: 월별 매출 ──
         ws3 = wb.create_sheet("월별 매출")
         ws3.append(["월","납품금액","마진액","평균마진율(%)"])
         style_header(ws3, 1, 4)
@@ -607,7 +648,7 @@ def page_dashboard():
             ws3.cell(tr,1).font = Font(bold=True)
         auto_width(ws3)
 
-        # ── 시트4: 재고 현황 ──
+        # ── 시트5: 재고 현황 ──
         ws4 = wb.create_sheet("재고 현황")
         ws4.append(["제품명","규격","공급가","납품가","현재고","최소재고","재고상태"])
         style_header(ws4, 1, 7)
