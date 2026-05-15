@@ -699,7 +699,7 @@ def page_stock_entry():
                 if sb2.button("🗑 전체 초기화", use_container_width=True, key="in_clear"):
                     st.session_state.in_cart = []; st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-        recent_in = run_sql("""SELECT s.date as 날짜, p.name as 품목,
+        recent_in = run_sql("""SELECT s.id, s.date as 날짜, p.name as 품목,
                                       s.quantity as 수량, s.purchase_price as 입고가,
                                       (s.quantity * s.purchase_price) as 입고합계,
                                       s.remaining_qty as 잔여수량
@@ -707,9 +707,28 @@ def page_stock_entry():
                                ORDER BY s.date DESC""")
         if not recent_in.empty:
             st.subheader("전체 입고 내역")
-            recent_in["입고가"]   = recent_in["입고가"].apply(fmt)
-            recent_in["입고합계"] = recent_in["입고합계"].apply(fmt)
-            st.dataframe(recent_in, use_container_width=True, hide_index=True)
+            disp_in2 = recent_in.drop(columns=["id"]).copy()
+            disp_in2["입고가"]   = disp_in2["입고가"].apply(fmt)
+            disp_in2["입고합계"] = disp_in2["입고합계"].apply(fmt)
+            st.dataframe(disp_in2, use_container_width=True, hide_index=True)
+            with st.expander("🗑 입고 내역 삭제"):
+                in_labels = recent_in.apply(
+                    lambda r: f"#{int(r['id'])} | {r['날짜']} | {r['품목']} | {int(r['수량'])}개", axis=1
+                ).tolist()
+                del_in_sel = st.multiselect("삭제할 항목 선택", in_labels, key="del_in_sel")
+                if del_in_sel:
+                    sel_in = recent_in.iloc[[in_labels.index(s) for s in del_in_sel]]
+                    warn_in = sel_in[sel_in["잔여수량"] < sel_in["수량"]]
+                    for _, wr in warn_in.iterrows():
+                        used = int(wr["수량"]) - int(wr["잔여수량"])
+                        st.warning(f"⚠️ '{wr['품목']}' ({wr['날짜']}) — {used}개가 이미 출고에 사용됨")
+                    if st.button(f"🗑 {len(del_in_sel)}건 삭제 확인", type="primary", key="del_in_btn"):
+                        conn = get_conn()
+                        for _, row in sel_in.iterrows():
+                            conn.execute("DELETE FROM stock_in WHERE id=?", (int(row["id"]),))
+                        conn.commit(); conn.close()
+                        st.success(f"{len(del_in_sel)}건 삭제 완료")
+                        st.rerun()
 
     # ── 출고 ──
     with tab2:
@@ -863,7 +882,7 @@ def page_stock_entry():
                 if sb4.button("🗑 전체 초기화", use_container_width=True, key="out_clear"):
                     st.session_state.out_cart = []; st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-        recent_out = run_sql("""SELECT o.date as 날짜, c.name as 거래처, p.name as 품목,
+        recent_out = run_sql("""SELECT o.id, o.date as 날짜, c.name as 거래처, p.name as 품목,
                                        o.type as 유형, o.quantity as 수량,
                                        o.total_amount as 납품금액, o.margin_rate as 마진율
                                 FROM stock_out o
@@ -872,9 +891,25 @@ def page_stock_entry():
                                 ORDER BY o.date DESC""")
         if not recent_out.empty:
             st.subheader("전체 출고 내역")
-            recent_out["납품금액"] = recent_out["납품금액"].apply(fmt)
-            recent_out["마진율"] = recent_out["마진율"].apply(lambda x: f"{x:.1f}%")
-            st.dataframe(recent_out, use_container_width=True, hide_index=True)
+            disp_out2 = recent_out.drop(columns=["id"]).copy()
+            disp_out2["납품금액"] = disp_out2["납품금액"].apply(fmt)
+            disp_out2["마진율"]   = disp_out2["마진율"].apply(lambda x: f"{x:.1f}%")
+            st.dataframe(disp_out2, use_container_width=True, hide_index=True)
+            with st.expander("🗑 출고 내역 삭제"):
+                out_labels = recent_out.apply(
+                    lambda r: f"#{int(r['id'])} | {r['날짜']} | {r['거래처']} | {r['품목']} | {int(r['수량'])}개", axis=1
+                ).tolist()
+                del_out_sel = st.multiselect("삭제할 항목 선택", out_labels, key="del_out_sel")
+                if del_out_sel:
+                    sel_out = recent_out.iloc[[out_labels.index(s) for s in del_out_sel]]
+                    st.info("출고 삭제 시 FIFO 재고가 자동 복원됩니다.")
+                    if st.button(f"🗑 {len(del_out_sel)}건 삭제 확인", type="primary", key="del_out_btn"):
+                        for _, row in sel_out.iterrows():
+                            if row["유형"] == "출고":
+                                restore_fifo(int(row["id"]))
+                            execute("DELETE FROM stock_out WHERE id=?", (int(row["id"]),))
+                        st.success(f"{len(del_out_sel)}건 삭제 완료 (재고 복원됨)")
+                        st.rerun()
 
     # ── 출고 수정 ──
     with tab3:
