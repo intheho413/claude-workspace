@@ -2,7 +2,14 @@ __pycache__/
 *.pyc
 *.pyo
 .streamlit/secrets.toml
-logs/
+logs/*.png
+logs/*.jpg
 *.log
 .env
 data/*.db
+1.개인비서/credentials.json
+1.개인비서/token.json
+1.개인비서/.env
+1.개인비서/data/
+streamlit_out.txt
+streamlit_err.txt
