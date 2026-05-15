@@ -1054,6 +1054,8 @@ def page_receivables():
         else:
             sel_client = st.selectbox("거래처 선택", clients_list["name"].tolist(), key="recv_sel_client")
             cid = int(clients_list[clients_list["name"]==sel_client].iloc[0]["id"])
+
+            # ── 거래 원장 ──
             detail = run_sql("""
                 SELECT date as 날짜, '출고' as 구분, total_amount as 금액, 0 as 수금액
                 FROM stock_out WHERE client_id=? AND type='출고'
@@ -1067,6 +1069,67 @@ def page_receivables():
                 st.dataframe(detail, use_container_width=True, hide_index=True)
             else:
                 st.info("거래 내역이 없습니다.")
+
+            # ── 수금 내역 수정 / 삭제 ──
+            st.divider()
+            st.markdown("**✏️ 수금 내역 수정 / 삭제**")
+            pay_df = run_sql("""
+                SELECT id, date as 날짜, amount as 수금액, COALESCE(note,'') as 메모
+                FROM payments WHERE client_id=? ORDER BY date DESC
+            """, (cid,))
+
+            if pay_df.empty:
+                st.info("등록된 수금 내역이 없습니다.")
+            else:
+                edited_pay = st.data_editor(
+                    pay_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    num_rows="fixed",
+                    column_config={
+                        "id":    st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                        "날짜":  st.column_config.TextColumn("날짜 ✏️", width="small"),
+                        "수금액": st.column_config.NumberColumn("수금액 ✏️", format="%d", width="medium"),
+                        "메모":  st.column_config.TextColumn("메모 ✏️"),
+                    },
+                    key="edit_pay_table",
+                )
+
+                pa, pb = st.columns(2)
+                if pa.button("💾 수정 저장", type="primary", use_container_width=True, key="save_pay_edit"):
+                    conn = get_conn()
+                    changed = 0
+                    for i, row in edited_pay.iterrows():
+                        orig = pay_df.iloc[i]
+                        if (str(row["날짜"]) != str(orig["날짜"]) or
+                                int(row["수금액"]) != int(orig["수금액"]) or
+                                str(row["메모"]) != str(orig["메모"])):
+                            conn.execute(
+                                "UPDATE payments SET date=?, amount=?, note=? WHERE id=?",
+                                (str(row["날짜"]), int(row["수금액"]), str(row["메모"]), int(row["id"]))
+                            )
+                            changed += 1
+                    conn.commit(); conn.close()
+                    if changed:
+                        st.success(f"{changed}건 수정 완료!")
+                        st.rerun()
+                    else:
+                        st.info("변경된 내용이 없습니다.")
+
+                del_options = pay_df.apply(
+                    lambda r: f"{r['날짜']} | {fmt(r['수금액'])} | {r['메모']}", axis=1
+                ).tolist()
+                del_sels = st.multiselect("삭제할 수금 내역 선택", del_options, key="del_pay_sel")
+                if del_sels:
+                    if pb.button(f"🗑 {len(del_sels)}건 삭제", type="primary",
+                                 use_container_width=True, key="del_pay_btn"):
+                        del_ids = [int(pay_df.iloc[del_options.index(s)]["id"]) for s in del_sels]
+                        conn = get_conn()
+                        for pid in del_ids:
+                            conn.execute("DELETE FROM payments WHERE id=?", (pid,))
+                        conn.commit(); conn.close()
+                        st.success(f"{len(del_ids)}건 삭제 완료!")
+                        st.rerun()
 
     with tab4:
         pie_data = recv[recv["미수금"] > 0]
