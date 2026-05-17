@@ -1834,7 +1834,11 @@ def page_med_sales():
                 exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hospital_name,))
                 if exc.empty:
                     execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hospital_name,))
-                client_id = int(run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hospital_name,)).iloc[0]["id"])
+                    exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hospital_name,))
+                if exc.empty:
+                    st.error("거래처 등록에 실패했습니다. 다시 시도해주세요.")
+                    st.stop()
+                client_id = int(exc.iloc[0]["id"])
 
                 for _, r in valid.iterrows():
                     pname = str(r.get("장비명","")).strip()
