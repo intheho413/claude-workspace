@@ -49,7 +49,7 @@ class _PGPool:
         self._connect()
 
     def _connect(self):
-        self._conn = psycopg2.connect(self._url)
+        self._conn = psycopg2.connect(self._url, connect_timeout=10)
         self._conn.autocommit = True
 
     def conn(self):
