@@ -455,6 +455,33 @@ def drive_download_bytes(path):
     except Exception:
         return None
 
+_TEMPLATE_FIXED_PATH = "_contract_template_.docx"
+
+def upload_template(file_bytes):
+    """계약서 양식을 고정 경로에 업로드. 항상 덮어씀."""
+    import requests as _req
+    base, hdrs = _storage_cfg()
+    if not base:
+        return False
+    try:
+        r = _req.post(
+            f"{base}/object/{_STORAGE_BUCKET}/{_TEMPLATE_FIXED_PATH}",
+            data=file_bytes,
+            headers={**hdrs,
+                     "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                     "x-upsert": "true"},
+            timeout=60,
+        )
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
+
+def get_template_bytes():
+    """계약서 양식 다운로드. 세션 캐시 사용."""
+    if "tmpl_bytes" not in st.session_state:
+        st.session_state["tmpl_bytes"] = drive_download_bytes(_TEMPLATE_FIXED_PATH)
+    return st.session_state["tmpl_bytes"]
+
 def get_storage_usage():
     """사용 중인 바이트 수 반환. 실패 시 -1."""
     import requests as _req
@@ -2218,8 +2245,9 @@ def page_med_master():
 
     # ── 계약서 발급 ──
     with tab3:
-        tmpl_row = run_sql("SELECT value FROM med_settings WHERE key='contract_template_id'")
-        has_tmpl = not tmpl_row.empty and tmpl_row.iloc[0]["value"]
+        # 고정 경로에서 양식 확인 (med_settings 불필요 — Storage에 영구 보관)
+        tmpl_bytes_cached = get_template_bytes()
+        has_tmpl = tmpl_bytes_cached is not None
 
         if has_tmpl:
             st.success("✅ 계약서 양식 등록됨")
@@ -2230,18 +2258,15 @@ def page_med_master():
             st.caption("양식 .docx 파일 안에 {{병원명}}, {{공급가격}} 등 플레이스홀더를 삽입해두세요.")
             tmpl_file = st.file_uploader("계약서 양식 (.docx)", type=["docx"], key="med_tmpl_up")
             if tmpl_file and st.button("양식 저장", type="primary", key="med_tmpl_save"):
-                if has_tmpl:
-                    drive_delete(tmpl_row.iloc[0]["value"])
-                fid, _ = drive_upload(tmpl_file.read(), "_CONTRACT_TEMPLATE_.docx",
-                                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                if fid:
-                    execute("INSERT INTO med_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
-                            ("contract_template_id", fid))
-                    st.success("양식 저장 완료!"); st.rerun()
+                ok = upload_template(tmpl_file.read())
+                if ok:
+                    st.session_state.pop("tmpl_bytes", None)  # 캐시 초기화
+                    st.success("양식 저장 완료! (Supabase Storage에 영구 보관됩니다)"); st.rerun()
+                else:
+                    st.error("업로드 실패. Supabase Storage 연결을 확인해주세요.")
 
         st.divider()
         st.markdown("**계약서 생성**")
-        clients_c = run_sql("SELECT id, hospital_name, COALESCE(ceo_name,'') as ceo, COALESCE(address,'') as address FROM med_clients ORDER BY hospital_name")
 
         cont_hosp = st.text_input("병원명", key="med_cont_hosp_txt")
         cont_ceo  = st.text_input("대표자명", key="med_cont_ceo_txt")
@@ -2259,7 +2284,7 @@ def page_med_master():
             else:
                 try:
                     from docx import Document
-                    tmpl_bytes = drive_download_bytes(tmpl_row.iloc[0]["value"])
+                    tmpl_bytes = tmpl_bytes_cached  # 이미 다운로드된 바이트 재사용
                     if tmpl_bytes is None:
                         st.error("템플릿 파일을 불러올 수 없습니다.")
                     else:
