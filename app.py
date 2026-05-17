@@ -1766,20 +1766,30 @@ def page_med_sales():
             st.subheader("전체 매입 내역")
             disp = df_in.copy(); disp.insert(0, "삭제", False)
             edited_in = st.data_editor(disp, use_container_width=True, hide_index=True, num_rows="fixed",
-                disabled=["날짜","장비사","장비명","가격유형","매입가","시리얼번호","비고"],
-                column_config={"id": None, "삭제": st.column_config.CheckboxColumn("삭제", width="small"),
-                               "매입가": st.column_config.NumberColumn("매입가", format="₩%d")},
+                disabled=["id"],
+                column_config={
+                    "id":    None,
+                    "삭제":  st.column_config.CheckboxColumn("삭제", width="small"),
+                    "날짜":  st.column_config.TextColumn("날짜"),
+                    "매입가": st.column_config.NumberColumn("매입가", format="₩%d"),
+                },
                 key="med_in_hist")
-            if st.button("🗑 삭제 적용", key="med_in_del", type="primary"):
+            if st.button("💾 변경사항 저장", key="med_in_save", type="primary"):
                 to_del = edited_in[edited_in["삭제"] == True]
-                if not to_del.empty:
-                    conn = get_conn()
-                    for did in to_del["id"].astype(int):
-                        conn.execute("DELETE FROM med_stock_in WHERE id=?", (did,))
-                    conn.commit(); conn.close()
-                    st.success(f"{len(to_del)}건 삭제 완료"); st.rerun()
-                else:
-                    st.info("삭제할 항목의 체크박스를 선택해주세요.")
+                to_upd = edited_in[edited_in["삭제"] == False]
+                conn = get_conn()
+                for did in to_del["id"].astype(int):
+                    conn.execute("DELETE FROM med_stock_in WHERE id=?", (did,))
+                for _, row in to_upd.iterrows():
+                    orig = df_in[df_in["id"] == row["id"]]
+                    if orig.empty: continue
+                    conn.execute("""UPDATE med_stock_in SET date=?,manufacturer=?,product_name=?,
+                                    price_type=?,purchase_price=?,serial_number=?,note=? WHERE id=?""",
+                                 (str(row["날짜"]), str(row["장비사"]), str(row["장비명"]),
+                                  str(row["가격유형"]), int(row["매입가"]),
+                                  str(row["시리얼번호"]), str(row["비고"]), int(row["id"])))
+                conn.commit(); conn.close()
+                st.success(f"저장 완료 (삭제 {len(to_del)}건)"); st.rerun()
 
     # ── 납품 등록 ──
     with tab2:
@@ -1854,24 +1864,37 @@ def page_med_sales():
             disp_out = df_out.drop(columns=["drive_file_id"]).copy()
             disp_out.insert(0, "삭제", False)
             edited_out = st.data_editor(disp_out, use_container_width=True, hide_index=True, num_rows="fixed",
-                disabled=["날짜","병원명","장비명","장비사","매입여부","결제방식","납품가","수수료","합계","첨부파일"],
-                column_config={"id": None, "삭제": st.column_config.CheckboxColumn("삭제", width="small"),
-                               "납품가": st.column_config.NumberColumn("납품가", format="₩%d"),
-                               "합계":   st.column_config.NumberColumn("합계",   format="₩%d")},
+                disabled=["id"],
+                column_config={
+                    "id":    None,
+                    "삭제":  st.column_config.CheckboxColumn("삭제", width="small"),
+                    "날짜":  st.column_config.TextColumn("날짜"),
+                    "납품가": st.column_config.NumberColumn("납품가", format="₩%d"),
+                    "수수료": st.column_config.NumberColumn("수수료", format="₩%d"),
+                    "합계":   st.column_config.NumberColumn("합계",   format="₩%d"),
+                    "매입여부": st.column_config.SelectboxColumn("매입여부", options=["매입","위탁"]),
+                    "결제방식": st.column_config.SelectboxColumn("결제방식", options=["현금","카드","리스"]),
+                },
                 key="med_out_hist")
-            if st.button("🗑 삭제 적용", key="med_out_del", type="primary"):
+            if st.button("💾 변경사항 저장", key="med_out_save", type="primary"):
                 to_del = edited_out[edited_out["삭제"] == True]
-                if not to_del.empty:
-                    conn = get_conn()
-                    for idx in to_del.index:
-                        did = int(df_out.loc[idx, "id"])
-                        fid = df_out.loc[idx, "drive_file_id"]
-                        if fid: drive_delete(fid)
-                        conn.execute("DELETE FROM med_stock_out WHERE id=?", (did,))
-                    conn.commit(); conn.close()
-                    st.success(f"{len(to_del)}건 삭제 완료"); st.rerun()
-                else:
-                    st.info("삭제할 항목의 체크박스를 선택해주세요.")
+                to_upd = edited_out[edited_out["삭제"] == False]
+                conn = get_conn()
+                for idx in to_del.index:
+                    did = int(df_out.loc[idx, "id"])
+                    fid = df_out.loc[idx, "drive_file_id"]
+                    if fid: drive_delete(fid)
+                    conn.execute("DELETE FROM med_stock_out WHERE id=?", (did,))
+                for _, row in to_upd.iterrows():
+                    conn.execute("""UPDATE med_stock_out SET date=?,product_name=?,manufacturer=?,
+                                    is_purchased=?,payment_method=?,sale_price=?,commission=?,
+                                    total_amount=?,note=? WHERE id=?""",
+                                 (str(row["날짜"]), str(row["장비명"]), str(row["장비사"]),
+                                  str(row["매입여부"]), str(row["결제방식"]),
+                                  int(row["납품가"]), int(row["수수료"]), int(row["합계"]),
+                                  str(row.get("비고", "")), int(row["id"])))
+                conn.commit(); conn.close()
+                st.success(f"저장 완료 (삭제 {len(to_del)}건)"); st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════
