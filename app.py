@@ -2250,12 +2250,25 @@ def page_med_master():
         has_tmpl = tmpl_bytes_cached is not None
 
         if has_tmpl:
-            st.success("✅ 계약서 양식 등록됨")
+            ta1, ta2, ta3 = st.columns([3, 1, 1])
+            ta1.success("✅ 계약서 양식 등록됨")
+            # 현재 양식 다운로드
+            ta2.download_button("⬇ 양식 확인", data=tmpl_bytes_cached,
+                                file_name="계약서양식.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                use_container_width=True, key="tmpl_dl")
+            # 삭제
+            if ta3.button("🗑 삭제", use_container_width=True, key="tmpl_del"):
+                drive_delete(_TEMPLATE_FIXED_PATH)
+                st.session_state.pop("tmpl_bytes", None)
+                st.success("계약서 양식이 삭제됐습니다."); st.rerun()
         else:
             st.warning("계약서 양식이 없습니다. 먼저 업로드해주세요.")
 
-        with st.expander("📤 계약서 양식 업로드 (관리자)"):
+        with st.expander("📤 계약서 양식 업로드 / 교체"):
             st.caption("양식 .docx 파일 안에 {{병원명}}, {{공급가격}} 등 플레이스홀더를 삽입해두세요.")
+            if has_tmpl:
+                st.info("새 파일을 업로드하면 기존 양식이 자동으로 교체됩니다.")
             tmpl_file = st.file_uploader("계약서 양식 (.docx)", type=["docx"], key="med_tmpl_up")
             if tmpl_file and st.button("양식 저장", type="primary", key="med_tmpl_save"):
                 ok = upload_template(tmpl_file.read())
