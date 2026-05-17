@@ -1804,13 +1804,12 @@ def page_med_sales():
         st.markdown('<div class="card">', unsafe_allow_html=True)
         out_date = st.date_input("납품일", value=date.today(), key="med_out_date")
 
-        hosp_mode = st.radio("병원 입력 방식", ["기존 선택", "직접 입력"], horizontal=True, key="med_out_hosp_mode")
-        if hosp_mode == "기존 선택" and not med_clients.empty:
-            hospital_name = st.selectbox("병원명", med_clients["hospital_name"].tolist(), key="med_out_hosp_sel")
-            client_id     = int(med_clients[med_clients["hospital_name"] == hospital_name].iloc[0]["id"])
-        else:
-            hospital_name = st.text_input("병원명 (직접 입력)", key="med_out_hosp_txt")
-            client_id     = None
+        hospital_name = st.text_input("병원명", key="med_out_hosp_txt")
+        client_id     = None
+        if hospital_name and not med_clients.empty:
+            match = med_clients[med_clients["hospital_name"] == hospital_name]
+            if not match.empty:
+                client_id = int(match.iloc[0]["id"])
 
         oc1, oc2 = st.columns(2)
         product_name_out = oc1.text_input("장비명", key="med_out_prod")
