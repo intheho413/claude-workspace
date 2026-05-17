@@ -2154,16 +2154,9 @@ def page_med_master():
         st.markdown("**계약서 생성**")
         clients_c = run_sql("SELECT id, hospital_name, COALESCE(ceo_name,'') as ceo, COALESCE(address,'') as address FROM med_clients ORDER BY hospital_name")
 
-        cm = st.radio("병원 입력", ["선택", "직접 입력"], horizontal=True, key="med_cont_mode")
-        if cm == "선택" and not clients_c.empty:
-            cont_hosp = st.selectbox("병원명", clients_c["hospital_name"].tolist(), key="med_cont_hosp")
-            hr = clients_c[clients_c["hospital_name"] == cont_hosp].iloc[0]
-            cont_ceo  = st.text_input("대표자명", value=hr["ceo"], key="med_cont_ceo_sel")
-            cont_addr = st.text_input("소재지",   value=hr["address"], key="med_cont_addr_sel")
-        else:
-            cont_hosp = st.text_input("병원명", key="med_cont_hosp_txt")
-            cont_ceo  = st.text_input("대표자명", key="med_cont_ceo_txt")
-            cont_addr = st.text_input("소재지", key="med_cont_addr_txt")
+        cont_hosp = st.text_input("병원명", key="med_cont_hosp_txt")
+        cont_ceo  = st.text_input("대표자명", key="med_cont_ceo_txt")
+        cont_addr = st.text_input("소재지", key="med_cont_addr_txt")
 
         c1, c2 = st.columns(2)
         cont_prod    = c1.text_input("제품명", key="med_cont_prod")
