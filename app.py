@@ -2194,11 +2194,17 @@ def page_med_master():
                             "{{소재지}}":   cont_addr,
                         }
                         def _replace_para(para):
+                            # run이 분리되어 있어도 전체 텍스트에서 치환
+                            full = "".join(r.text for r in para.runs)
+                            if not any(k in full for k in repls):
+                                return
                             for k, v in repls.items():
-                                if k in para.text:
-                                    for run in para.runs:
-                                        if k in run.text:
-                                            run.text = run.text.replace(k, v)
+                                full = full.replace(k, v)
+                            # 첫 번째 run에 전체 텍스트, 나머지는 비움
+                            if para.runs:
+                                para.runs[0].text = full
+                                for run in para.runs[1:]:
+                                    run.text = ""
                         for para in doc.paragraphs:
                             _replace_para(para)
                         for table in doc.tables:
