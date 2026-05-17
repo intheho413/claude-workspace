@@ -339,68 +339,124 @@ def restore_fifo(out_id):
     conn.commit(); conn.close()
 
 # ══════════════════════════════════════════════════════════════════════════
-# Google Drive 헬퍼
+# Supabase Storage 헬퍼
 # ══════════════════════════════════════════════════════════════════════════
-@st.cache_resource(show_spinner=False)
-def _gdrive_service():
-    try:
-        import json as _j
-        from google.oauth2.service_account import Credentials
-        from googleapiclient.discovery import build
-        info = _j.loads(st.secrets["google"]["service_account"])
-        creds = Credentials.from_service_account_info(
-            info, scopes=["https://www.googleapis.com/auth/drive"])
-        return build("drive", "v3", credentials=creds)
-    except Exception:
-        return None
+_STORAGE_BUCKET   = "mso-documents"
+_STORAGE_FREE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 
-def _drive_folder_id():
+def _storage_cfg():
+    """(base_url, headers) 반환. secrets 미설정 시 (None, None)"""
     try:
-        return st.secrets["google"]["drive_folder_id"]
+        proj_url = st.secrets["supabase"]["url"].rstrip("/")
+        key      = st.secrets["supabase"]["service_key"]
+        headers  = {"Authorization": f"Bearer {key}", "apikey": key}
+        return f"{proj_url}/storage/v1", headers
     except Exception:
-        return None
+        return None, None
 
 def drive_upload(file_bytes, filename, mime_type):
-    svc = _gdrive_service()
-    if svc is None:
+    """파일을 Supabase Storage에 업로드. (path, signed_url) 반환."""
+    import requests as _req
+    base, hdrs = _storage_cfg()
+    if not base:
+        st.error("Supabase Storage 설정이 없습니다. secrets.toml을 확인하세요.")
         return None, None
+    path = f"{datetime.date.today().isoformat()}_{filename}"
     try:
-        from googleapiclient.http import MediaIoBaseUpload
-        meta = {"name": filename, "parents": [_drive_folder_id()]}
-        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type)
-        f = svc.files().create(body=meta, media_body=media, fields="id,webViewLink").execute()
-        svc.permissions().create(fileId=f["id"], body={"role": "reader", "type": "anyone"}).execute()
-        return f["id"], f["webViewLink"]
+        r = _req.post(
+            f"{base}/object/{_STORAGE_BUCKET}/{path}",
+            data=file_bytes,
+            headers={**hdrs, "Content-Type": mime_type},
+            timeout=60,
+        )
+        if r.status_code not in (200, 201):
+            st.error(f"업로드 오류 ({r.status_code}): {r.text}")
+            return None, None
+        # 서명된 URL 생성 (1년 유효)
+        sign = _req.post(
+            f"{base}/object/sign/{_STORAGE_BUCKET}/{path}",
+            json={"expiresIn": 31536000},
+            headers={**hdrs, "Content-Type": "application/json"},
+            timeout=10,
+        )
+        signed_url = sign.json().get("signedURL", "") if sign.status_code == 200 else ""
+        if signed_url and not signed_url.startswith("http"):
+            proj_url = st.secrets["supabase"]["url"].rstrip("/")
+            signed_url = proj_url + signed_url
+        return path, signed_url
     except Exception as e:
-        st.error(f"Drive 업로드 오류: {e}")
+        st.error(f"업로드 오류: {e}")
         return None, None
 
-def drive_delete(file_id):
-    svc = _gdrive_service()
-    if svc is None or not file_id:
+def drive_delete(path):
+    """Supabase Storage에서 파일 삭제."""
+    import requests as _req
+    base, hdrs = _storage_cfg()
+    if not base or not path:
         return False
     try:
-        svc.files().delete(fileId=file_id).execute()
-        return True
+        r = _req.delete(
+            f"{base}/object/{_STORAGE_BUCKET}/{path}",
+            headers=hdrs, timeout=10,
+        )
+        return r.status_code in (200, 204)
     except Exception:
         return False
 
-def drive_download_bytes(file_id):
-    svc = _gdrive_service()
-    if svc is None or not file_id:
+def drive_download_bytes(path):
+    """Supabase Storage에서 파일 바이트 다운로드."""
+    import requests as _req
+    base, hdrs = _storage_cfg()
+    if not base or not path:
         return None
     try:
-        from googleapiclient.http import MediaIoBaseDownload
-        buf = io.BytesIO()
-        req = svc.files().get_media(fileId=file_id)
-        dl = MediaIoBaseDownload(buf, req)
-        done = False
-        while not done:
-            _, done = dl.next_chunk()
-        buf.seek(0)
-        return buf.read()
+        r = _req.get(
+            f"{base}/object/authenticated/{_STORAGE_BUCKET}/{path}",
+            headers=hdrs, timeout=60,
+        )
+        return r.content if r.status_code == 200 else None
     except Exception:
         return None
+
+def get_storage_usage():
+    """사용 중인 바이트 수 반환. 실패 시 -1."""
+    import requests as _req
+    base, hdrs = _storage_cfg()
+    if not base:
+        return -1
+    try:
+        r = _req.post(
+            f"{base}/object/list/{_STORAGE_BUCKET}",
+            json={"limit": 10000, "offset": 0, "sortBy": {"column": "name", "order": "asc"}},
+            headers={**hdrs, "Content-Type": "application/json"},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return -1
+        files = r.json()
+        return sum(f.get("metadata", {}).get("size", 0) for f in files if isinstance(f.get("metadata"), dict))
+    except Exception:
+        return -1
+
+def show_storage_warning():
+    """용량 경고 배너. 80% 이상 시 표시."""
+    used = get_storage_usage()
+    if used < 0:
+        return
+    pct = used / _STORAGE_FREE_BYTES * 100
+    used_mb = used / 1024 / 1024
+    if pct >= 95:
+        st.error(
+            f"⛔ 저장 용량 위기! {used_mb:.0f}MB / 1,024MB 사용 중 ({pct:.1f}%)\n\n"
+            "**즉시 조치 필요:** Supabase Pro 플랜 업그레이드(월 $25, 100GB) 또는 "
+            "Cloudflare R2 무료 플랜(10GB) 전환을 권장합니다."
+        )
+    elif pct >= 80:
+        st.warning(
+            f"⚠️ 저장 용량 {pct:.1f}% 사용 중 ({used_mb:.0f}MB / 1,024MB)\n\n"
+            "**용량 확장 옵션:** ① Supabase Pro (월 $25, 100GB) "
+            "② Cloudflare R2 무료 10GB 전환"
+        )
 
 # ══════════════════════════════════════════════════════════════════════════
 # 대시보드
@@ -2161,6 +2217,7 @@ def page_med_master():
 
     # ── 문서함 ──
     with tab4:
+        show_storage_warning()
         st.markdown("**파일 업로드**")
         clients_doc = run_sql("SELECT id, hospital_name FROM med_clients ORDER BY hospital_name")
 
