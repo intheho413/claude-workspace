@@ -1730,24 +1730,10 @@ def page_med_sales():
         mfrs = sorted(ep["manufacturer"].dropna().unique().tolist()) if not ep.empty else []
 
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        in_mode = st.radio("입력 방식", ["기존 선택", "직접 입력"], horizontal=True, key="med_in_mode")
         in_date = st.date_input("매입일", value=date.today(), key="med_in_date")
-
-        if in_mode == "기존 선택" and not ep.empty:
-            c1, c2 = st.columns(2)
-            sel_mfr = c1.selectbox("장비사", ["전체"] + mfrs, key="med_in_mfr_sel")
-            filtered = ep if sel_mfr == "전체" else ep[ep["manufacturer"] == sel_mfr]
-            sel_prod = c2.selectbox("장비명", filtered["name"].tolist() if not filtered.empty else [], key="med_in_prod_sel")
-            if not filtered.empty and sel_prod:
-                row_p = filtered[filtered["name"] == sel_prod]
-                manufacturer = row_p["manufacturer"].iloc[0] if not row_p.empty else ""
-            else:
-                manufacturer = ""
-            product_name = sel_prod
-        else:
-            c1, c2 = st.columns(2)
-            manufacturer  = c1.text_input("장비사", key="med_in_mfr_txt")
-            product_name  = c2.text_input("장비명", key="med_in_prod_txt")
+        c1, c2 = st.columns(2)
+        manufacturer  = c1.text_input("장비사", key="med_in_mfr_txt")
+        product_name  = c2.text_input("장비명", key="med_in_prod_txt")
 
         c3, c4 = st.columns(2)
         price_type     = c3.radio("가격 유형", ["직납", "매입"], horizontal=True, key="med_in_pt")
@@ -1830,9 +1816,6 @@ def page_med_sales():
         payment_method = fc3.radio("결제방식", ["현금", "카드", "리스"], horizontal=True, key="med_out_pay")
         note_out       = st.text_input("비고", key="med_out_note")
 
-        st.markdown("**계약서 파일 첨부** (선택)")
-        contract_file = st.file_uploader("JPG / PNG / PDF", type=["jpg","jpeg","png","pdf"], key="med_out_file")
-
         if st.button("✅ 납품 등록", type="primary", use_container_width=True, key="med_out_submit"):
             if not hospital_name or not product_name_out:
                 st.error("병원명과 장비명을 입력해주세요.")
@@ -1850,16 +1833,6 @@ def page_med_sales():
                 prod_row = run_sql("SELECT id FROM med_products WHERE name=?", (product_name_out,))
                 prod_id  = int(prod_row.iloc[0]["id"]) if not prod_row.empty else None
 
-                drive_file_id, drive_file_name = None, None
-                if contract_file is not None:
-                    svc = _gdrive_service()
-                    if svc:
-                        fname = f"{hospital_name}_{product_name_out}_{out_date}{Path(contract_file.name).suffix}"
-                        drive_file_id, _ = drive_upload(contract_file.read(), fname, contract_file.type)
-                        drive_file_name  = fname
-                    else:
-                        st.warning("Google Drive 미연동 — 파일 첨부 건너뜀")
-
                 execute("""INSERT INTO med_stock_out
                     (date,client_id,product_id,product_name,manufacturer,serial_number,
                      is_purchased,payment_method,sale_price,commission,
@@ -1867,7 +1840,7 @@ def page_med_sales():
                     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (str(out_date), client_id, prod_id, product_name_out, manufacturer_out,
                      serial_out, is_purchased, payment_method, sale_price, commission,
-                     supply_amount, vat_amount, sale_price, drive_file_id, drive_file_name, note_out))
+                     supply_amount, vat_amount, sale_price, None, None, note_out))
                 st.success(f"납품 등록 완료 — {hospital_name} | {product_name_out}"); st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
