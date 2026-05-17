@@ -1833,17 +1833,24 @@ def page_med_sales():
                 st.error("장비명을 최소 1행 이상 입력해주세요.")
             else:
                 # 거래처 자동 등록 — RETURNING id 로 즉시 ID 획득
+                def _safe_id(val):
+                    if val is None: return None
+                    try:
+                        v = int(float(str(val)))
+                        return v if v > 0 else None
+                    except (TypeError, ValueError):
+                        return None
+
                 _m = med_clients[med_clients["hospital_name"] == hosp]
-                if not _m.empty and _m.iloc[0]["id"] is not None:
-                    client_id = int(_m.iloc[0]["id"])
-                else:
+                client_id = _safe_id(_m.iloc[0]["id"]) if not _m.empty else None
+                if client_id is None:
                     try:
                         execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hosp,))
                         _new = run_sql(
-                            "SELECT id FROM med_clients WHERE hospital_name=? ORDER BY id DESC LIMIT 1",
+                            "SELECT id FROM med_clients WHERE hospital_name=? AND id IS NOT NULL ORDER BY id DESC LIMIT 1",
                             (hosp,)
                         )
-                        client_id = int(_new.iloc[0]["id"]) if not _new.empty else None
+                        client_id = _safe_id(_new.iloc[0]["id"]) if not _new.empty else None
                     except Exception as _e:
                         client_id = None
                         st.error(f"거래처 등록 오류: {_e}")
