@@ -1739,9 +1739,7 @@ def page_med_sales():
         price_type     = c3.radio("가격 유형", ["직납", "매입"], horizontal=True, key="med_in_pt")
         purchase_price = c4.number_input("장비 가격", min_value=0, step=100000, key="med_in_price")
 
-        c5, c6 = st.columns(2)
-        serial      = c5.text_input("시리얼번호", key="med_in_serial")
-        warranty    = c6.date_input("보증만료일", value=None, key="med_in_warranty")
+        serial      = st.text_input("시리얼번호", key="med_in_serial")
         note_in     = st.text_input("비고", key="med_in_note")
 
         if st.button("✅ 매입 등록", type="primary", use_container_width=True, key="med_in_submit"):
@@ -1755,20 +1753,20 @@ def page_med_sales():
                     (date,manufacturer,product_name,price_type,purchase_price,serial_number,warranty_end,note)
                     VALUES (?,?,?,?,?,?,?,?)""",
                     (str(in_date), manufacturer, product_name, price_type, purchase_price,
-                     serial, str(warranty) if warranty else None, note_in))
+                     serial, None, note_in))
                 st.success(f"매입 등록 완료 — {manufacturer} {product_name}"); st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
         df_in = run_sql("""SELECT id, date as 날짜, manufacturer as 장비사, product_name as 장비명,
                                   price_type as 가격유형, purchase_price as 매입가,
                                   COALESCE(serial_number,'') as 시리얼번호,
-                                  COALESCE(warranty_end,'') as 보증만료일, COALESCE(note,'') as 비고
+                                  COALESCE(note,'') as 비고
                            FROM med_stock_in ORDER BY date DESC""")
         if not df_in.empty:
             st.subheader("전체 매입 내역")
             disp = df_in.copy(); disp.insert(0, "삭제", False)
             edited_in = st.data_editor(disp, use_container_width=True, hide_index=True, num_rows="fixed",
-                disabled=["날짜","장비사","장비명","가격유형","매입가","시리얼번호","보증만료일","비고"],
+                disabled=["날짜","장비사","장비명","가격유형","매입가","시리얼번호","비고"],
                 column_config={"id": None, "삭제": st.column_config.CheckboxColumn("삭제", width="small"),
                                "매입가": st.column_config.NumberColumn("매입가", format="₩%d")},
                 key="med_in_hist")
