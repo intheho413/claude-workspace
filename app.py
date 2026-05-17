@@ -2186,7 +2186,7 @@ def page_med_master():
                             "{{병원명}}":   cont_hosp,
                             "{{공급가격}}": f"₩{int(cont_price):,}원",
                             "{{제품명}}":   cont_prod,
-                            "{{대표자}}":   " ".join(cont_ceo),
+                            "{{대표자명}}":  " ".join(cont_ceo),
                             "{{소재지}}":   cont_addr,
                         }
                         def _replace_para(para):
