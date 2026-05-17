@@ -2158,8 +2158,8 @@ def page_med_master():
         if cm == "선택" and not clients_c.empty:
             cont_hosp = st.selectbox("병원명", clients_c["hospital_name"].tolist(), key="med_cont_hosp")
             hr = clients_c[clients_c["hospital_name"] == cont_hosp].iloc[0]
-            cont_ceo  = hr["ceo"]
-            cont_addr = hr["address"]
+            cont_ceo  = st.text_input("대표자명", value=hr["ceo"], key="med_cont_ceo_sel")
+            cont_addr = st.text_input("소재지",   value=hr["address"], key="med_cont_addr_sel")
         else:
             cont_hosp = st.text_input("병원명", key="med_cont_hosp_txt")
             cont_ceo  = st.text_input("대표자명", key="med_cont_ceo_txt")
