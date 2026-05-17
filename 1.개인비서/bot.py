@@ -417,13 +417,13 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     if not TELEGRAM_TOKEN or TELEGRAM_TOKEN == "여기에_텔레그램_봇_토큰_입력":
-        print("❌ .env 파일에 TELEGRAM_BOT_TOKEN을 설정해주세요.")
+        print("[오류] .env 파일에 TELEGRAM_BOT_TOKEN을 설정해주세요.")
         return
     if not GEMINI_API_KEY or GEMINI_API_KEY == "여기에_Gemini_API_키_입력":
-        print("❌ .env 파일에 GEMINI_API_KEY를 설정해주세요.")
+        print("[오류] .env 파일에 GEMINI_API_KEY를 설정해주세요.")
         return
     if not CREDENTIALS_FILE.exists():
-        print("❌ credentials.json 파일이 없어요. Google Cloud Console에서 다운로드해주세요.")
+        print("[오류] credentials.json 파일이 없어요. Google Cloud Console에서 다운로드해주세요.")
         return
 
     app = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -439,8 +439,8 @@ def main():
     app.add_handler(CommandHandler("clear", clear_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
 
-    logger.info("🤖 개인 AI 비서 봇 시작!")
-    print("🤖 봇이 실행 중입니다. 종료하려면 Ctrl+C")
+    logger.info("개인 AI 비서 봇 시작!")
+    print("봇이 실행 중입니다. 종료하려면 Ctrl+C")
     app.run_polling(drop_pending_updates=True)
 
 
