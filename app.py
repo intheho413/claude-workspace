@@ -2168,8 +2168,6 @@ def page_med_master():
         c1, c2 = st.columns(2)
         cont_prod    = c1.text_input("제품명", key="med_cont_prod")
         cont_price   = c2.number_input("공급가격 (VAT포함)", min_value=0, step=1000000, key="med_cont_price")
-        cont_pay     = st.radio("지불방법", ["현금", "리스", "일시불"], horizontal=True, key="med_cont_pay")
-        cont_date    = st.date_input("계약일", value=date.today(), key="med_cont_date")
 
         if st.button("📄 계약서 생성 → 다운로드", type="primary", use_container_width=True, key="med_cont_gen"):
             if not has_tmpl:
@@ -2188,9 +2186,7 @@ def page_med_master():
                             "{{병원명}}":   cont_hosp,
                             "{{공급가격}}": f"₩{int(cont_price):,}원",
                             "{{제품명}}":   cont_prod,
-                            "{{지불방법}}": cont_pay,
-                            "{{계약일}}":   cont_date.strftime("%Y년 %m월 %d일"),
-                            "{{대표자}}":   cont_ceo,
+                            "{{대표자}}":   " ".join(cont_ceo),
                             "{{소재지}}":   cont_addr,
                         }
                         def _replace_para(para):
