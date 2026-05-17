@@ -366,7 +366,7 @@ def drive_upload(file_bytes, filename, mime_type):
         r = _req.post(
             f"{base}/object/{_STORAGE_BUCKET}/{path}",
             data=file_bytes,
-            headers={**hdrs, "Content-Type": mime_type},
+            headers={**hdrs, "Content-Type": mime_type, "x-upsert": "true"},
             timeout=60,
         )
         if r.status_code not in (200, 201):
