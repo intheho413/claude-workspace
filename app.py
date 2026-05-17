@@ -2211,7 +2211,7 @@ def page_med_master():
                         cbuf = io.BytesIO()
                         doc.save(cbuf); cbuf.seek(0)
                         st.download_button("⬇ 계약서 다운로드", data=cbuf,
-                                           file_name=f"계약서_{cont_hosp}_{cont_date}.docx",
+                                           file_name=f"계약서_{cont_hosp}_{date.today()}.docx",
                                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                                            use_container_width=True)
                 except Exception as e:
