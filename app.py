@@ -1825,49 +1825,50 @@ def page_med_sales():
         if st.button("✅ 납품 등록", type="primary", use_container_width=True, key="med_out_submit"):
             valid = out_rows.dropna(subset=["장비명"]).copy()
             valid = valid[valid["장비명"].astype(str).str.strip() != ""]
-            if not hospital_name:
+            hosp = hospital_name.strip() if hospital_name else ""
+            if not hosp:
                 st.error("병원명을 입력해주세요.")
             elif valid.empty:
                 st.error("장비명을 최소 1행 이상 입력해주세요.")
             else:
                 # 거래처 자동 등록
-                exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hospital_name,))
+                exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hosp,))
                 if exc.empty:
-                    execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hospital_name,))
-                    exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hospital_name,))
-                if exc.empty:
+                    execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hosp,))
+                    exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hosp,))
+                client_id = int(exc.iloc[0]["id"]) if not exc.empty and exc.iloc[0]["id"] is not None else None
+                if client_id is None:
                     st.error("거래처 등록에 실패했습니다. 다시 시도해주세요.")
-                    st.stop()
-                client_id = int(exc.iloc[0]["id"])
+                else:
 
-                for _, r in valid.iterrows():
-                    pname = str(r.get("장비명","")).strip()
-                    pmfr  = str(r.get("장비사","")).strip()
-                    sp    = int(r.get("납품가", 0) or 0)
-                    comm  = int(r.get("수수료", 0) or 0)
-                    serial = str(r.get("시리얼번호","") or "").strip()
-                    is_p  = str(r.get("매입여부","매입") or "매입")
-                    paym  = str(r.get("결제방식","현금") or "현금")
-                    note  = str(r.get("비고","") or "").strip()
-                    supply = round(sp / 1.1) if sp > 0 else 0
-                    vat    = sp - supply
+                    for _, r in valid.iterrows():
+                        pname = str(r.get("장비명","")).strip()
+                        pmfr  = str(r.get("장비사","")).strip()
+                        sp    = int(r.get("납품가", 0) or 0)
+                        comm  = int(r.get("수수료", 0) or 0)
+                        serial = str(r.get("시리얼번호","") or "").strip()
+                        is_p  = str(r.get("매입여부","매입") or "매입")
+                        paym  = str(r.get("결제방식","현금") or "현금")
+                        note  = str(r.get("비고","") or "").strip()
+                        supply = round(sp / 1.1) if sp > 0 else 0
+                        vat    = sp - supply
 
-                    if pname and pmfr:
-                        ep2 = run_sql("SELECT id FROM med_products WHERE name=? AND manufacturer=?", (pname, pmfr))
-                        if ep2.empty:
-                            execute("INSERT INTO med_products (name, manufacturer) VALUES (?,?)", (pname, pmfr))
-                    prod_row = run_sql("SELECT id FROM med_products WHERE name=?", (pname,))
-                    prod_id  = int(prod_row.iloc[0]["id"]) if not prod_row.empty else None
+                        if pname and pmfr:
+                            ep2 = run_sql("SELECT id FROM med_products WHERE name=? AND manufacturer=?", (pname, pmfr))
+                            if ep2.empty:
+                                execute("INSERT INTO med_products (name, manufacturer) VALUES (?,?)", (pname, pmfr))
+                        prod_row = run_sql("SELECT id FROM med_products WHERE name=?", (pname,))
+                        prod_id  = int(prod_row.iloc[0]["id"]) if not prod_row.empty else None
 
-                    execute("""INSERT INTO med_stock_out
-                        (date,client_id,product_id,product_name,manufacturer,serial_number,
-                         is_purchased,payment_method,sale_price,commission,
-                         supply_amount,vat_amount,total_amount,drive_file_id,drive_file_name,note)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                        (str(out_date), client_id, prod_id, pname, pmfr, serial,
-                         is_p, paym, sp, comm, supply, vat, sp, None, None, note))
+                        execute("""INSERT INTO med_stock_out
+                            (date,client_id,product_id,product_name,manufacturer,serial_number,
+                             is_purchased,payment_method,sale_price,commission,
+                             supply_amount,vat_amount,total_amount,drive_file_id,drive_file_name,note)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (str(out_date), client_id, prod_id, pname, pmfr, serial,
+                             is_p, paym, sp, comm, supply, vat, sp, None, None, note))
 
-                st.success(f"납품 등록 완료 — {hospital_name} {len(valid)}건"); st.rerun()
+                    st.success(f"납품 등록 완료 — {hosp} {len(valid)}건"); st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
         df_out = run_sql("""SELECT o.id, o.date as 날짜, c.hospital_name as 병원명,
