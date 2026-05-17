@@ -1845,12 +1845,12 @@ def page_med_sales():
                 client_id = _safe_id(_m.iloc[0]["id"]) if not _m.empty else None
                 if client_id is None:
                     try:
-                        execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hosp,))
-                        _new = run_sql(
-                            "SELECT id FROM med_clients WHERE hospital_name=? AND id IS NOT NULL ORDER BY id DESC LIMIT 1",
-                            (hosp,)
-                        )
-                        client_id = _safe_id(_new.iloc[0]["id"]) if not _new.empty else None
+                        # SERIAL 시퀀스 미설정 환경 대비 — id를 직접 계산해 INSERT
+                        _mx = run_sql("SELECT COALESCE(MAX(id),0)+1 as nid FROM med_clients WHERE id IS NOT NULL")
+                        next_id = int(_mx.iloc[0]["nid"]) if not _mx.empty and _mx.iloc[0]["nid"] is not None else 1
+                        execute("DELETE FROM med_clients WHERE hospital_name=? AND id IS NULL", (hosp,))
+                        execute("INSERT INTO med_clients (id, hospital_name) VALUES (?,?)", (next_id, hosp))
+                        client_id = next_id
                     except Exception as _e:
                         client_id = None
                         st.error(f"거래처 등록 오류: {_e}")
