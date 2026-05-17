@@ -1831,14 +1831,24 @@ def page_med_sales():
             elif valid.empty:
                 st.error("장비명을 최소 1행 이상 입력해주세요.")
             else:
-                # 거래처 자동 등록 — 이미 로드된 DataFrame 우선 사용
+                # 거래처 자동 등록 — RETURNING id 로 즉시 ID 획득
                 _m = med_clients[med_clients["hospital_name"] == hosp]
                 if not _m.empty and _m.iloc[0]["id"] is not None:
                     client_id = int(_m.iloc[0]["id"])
                 else:
-                    execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hosp,))
-                    _fresh = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hosp,))
-                    client_id = int(_fresh.iloc[0]["id"]) if not _fresh.empty and _fresh.iloc[0]["id"] is not None else None
+                    try:
+                        _conn = get_conn()
+                        _cur  = _conn.execute(
+                            "INSERT INTO med_clients (hospital_name) VALUES (?) RETURNING id",
+                            (hosp,)
+                        )
+                        _row  = _cur.fetchone()
+                        _conn.commit()
+                        _conn.close()
+                        client_id = int(_row["id"]) if _row and _row["id"] is not None else None
+                    except Exception as _e:
+                        client_id = None
+                        st.error(f"거래처 등록 오류: {_e}")
                 if client_id is None:
                     st.error("거래처 등록에 실패했습니다. 다시 시도해주세요.")
                 else:
