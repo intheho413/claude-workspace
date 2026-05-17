@@ -752,30 +752,31 @@ def page_stock_entry():
             for _, wr in warn_in.iterrows():
                 used = int(wr["수량"]) - int(wr["잔여수량"])
                 st.caption(f"⚠️ {wr['날짜']} | {wr['품목']}: {used}개 이미 출고 사용됨 — 삭제 주의")
+            display_in = recent_in.copy()
+            display_in.insert(0, "삭제", False)
             edited_in = st.data_editor(
-                recent_in,
-                use_container_width=True, hide_index=True, num_rows="dynamic",
+                display_in,
+                use_container_width=True, hide_index=True, num_rows="fixed",
                 disabled=["날짜", "품목", "수량", "입고가", "입고합계", "잔여수량"],
                 column_config={
-                    "id":    None,
+                    "id":       None,
+                    "삭제":     st.column_config.CheckboxColumn("삭제", width="small"),
                     "입고가":   st.column_config.NumberColumn("입고가",   format="₩%d"),
                     "입고합계": st.column_config.NumberColumn("입고합계", format="₩%d"),
                 },
                 key="editor_in_hist",
             )
             if st.button("🗑 삭제 적용", key="apply_del_in", type="primary"):
-                original_ids = set(recent_in["id"].astype(int))
-                remaining_ids = set(edited_in["id"].dropna().astype(int)) if not edited_in.empty else set()
-                deleted_ids = original_ids - remaining_ids
-                if deleted_ids:
+                to_delete = edited_in[edited_in["삭제"] == True]
+                if not to_delete.empty:
                     conn = get_conn()
-                    for did in deleted_ids:
+                    for did in to_delete["id"].astype(int):
                         conn.execute("DELETE FROM stock_in WHERE id=?", (did,))
                     conn.commit(); conn.close()
-                    st.success(f"{len(deleted_ids)}건 삭제 완료")
+                    st.success(f"{len(to_delete)}건 삭제 완료")
                     st.rerun()
                 else:
-                    st.info("삭제된 항목이 없습니다.")
+                    st.info("삭제할 항목의 '삭제' 체크박스를 선택해주세요.")
 
     # ── 출고 ──
     with tab2:
@@ -938,32 +939,34 @@ def page_stock_entry():
                                 ORDER BY o.date DESC""")
         if not recent_out.empty:
             st.subheader("전체 출고 내역")
-            st.caption("행 왼쪽 휴지통 아이콘으로 삭제 선택 → '삭제 적용' 클릭")
+            st.caption("삭제할 행의 '삭제' 체크박스 선택 → '삭제 적용' 클릭")
+            display_out = recent_out.copy()
+            display_out.insert(0, "삭제", False)
             edited_out = st.data_editor(
-                recent_out,
-                use_container_width=True, hide_index=True, num_rows="dynamic",
+                display_out,
+                use_container_width=True, hide_index=True, num_rows="fixed",
                 disabled=["날짜", "거래처", "품목", "유형", "수량", "납품금액", "마진율"],
                 column_config={
-                    "id":    None,
+                    "id":       None,
+                    "삭제":     st.column_config.CheckboxColumn("삭제", width="small"),
                     "납품금액": st.column_config.NumberColumn("납품금액", format="₩%d"),
                     "마진율":   st.column_config.NumberColumn("마진율",   format="%.1f%%"),
                 },
                 key="editor_out_hist",
             )
             if st.button("🗑 삭제 적용", key="apply_del_out", type="primary"):
-                original_ids = set(recent_out["id"].astype(int))
-                remaining_ids = set(edited_out["id"].dropna().astype(int)) if not edited_out.empty else set()
-                deleted_ids = original_ids - remaining_ids
-                if deleted_ids:
-                    del_rows = recent_out[recent_out["id"].isin(deleted_ids)]
+                to_delete = edited_out[edited_out["삭제"] == True]
+                if not to_delete.empty:
+                    del_ids = to_delete["id"].astype(int).tolist()
+                    del_rows = recent_out[recent_out["id"].isin(del_ids)]
                     for _, row in del_rows.iterrows():
                         if row["유형"] == "출고":
                             restore_fifo(int(row["id"]))
                         execute("DELETE FROM stock_out WHERE id=?", (int(row["id"]),))
-                    st.success(f"{len(deleted_ids)}건 삭제 완료 (재고 복원됨)")
+                    st.success(f"{len(to_delete)}건 삭제 완료 (재고 복원됨)")
                     st.rerun()
                 else:
-                    st.info("삭제된 항목이 없습니다.")
+                    st.info("삭제할 항목의 '삭제' 체크박스를 선택해주세요.")
 
     # ── 출고 수정 ──
     with tab3:
