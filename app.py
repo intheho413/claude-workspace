@@ -1831,12 +1831,14 @@ def page_med_sales():
             elif valid.empty:
                 st.error("장비명을 최소 1행 이상 입력해주세요.")
             else:
-                # 거래처 자동 등록
-                exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hosp,))
-                if exc.empty:
+                # 거래처 자동 등록 — 이미 로드된 DataFrame 우선 사용
+                _m = med_clients[med_clients["hospital_name"] == hosp]
+                if not _m.empty and _m.iloc[0]["id"] is not None:
+                    client_id = int(_m.iloc[0]["id"])
+                else:
                     execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hosp,))
-                    exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hosp,))
-                client_id = int(exc.iloc[0]["id"]) if not exc.empty and exc.iloc[0]["id"] is not None else None
+                    _fresh = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hosp,))
+                    client_id = int(_fresh.iloc[0]["id"]) if not _fresh.empty and _fresh.iloc[0]["id"] is not None else None
                 if client_id is None:
                     st.error("거래처 등록에 실패했습니다. 다시 시도해주세요.")
                 else:
@@ -1964,7 +1966,10 @@ def page_med_receivables():
             st.warning("거래처를 먼저 등록해주세요.")
         else:
             pay_client = st.selectbox("병원 선택", clients_pay["hospital_name"].tolist(), key="med_pay_client")
-            cid = int(clients_pay[clients_pay["hospital_name"] == pay_client].iloc[0]["id"])
+            _cid_row = clients_pay[clients_pay["hospital_name"] == pay_client]
+            cid = int(_cid_row.iloc[0]["id"]) if not _cid_row.empty and _cid_row.iloc[0]["id"] is not None else None
+            if cid is None:
+                st.error("거래처 ID를 찾을 수 없습니다."); st.stop()
             row = recv[recv["병원명"] == pay_client]
             outstanding = int(row["미수금"].iloc[0]) if not row.empty else 0
             if outstanding > 0:
