@@ -295,6 +295,22 @@ def execute(query, params=()):
 
 def fmt(v):    return f"₩{int(v or 0):,}"
 
+def _safe_id(val):
+    if val is None: return None
+    try:
+        v = int(float(str(val)))
+        return v if v > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+def _med_next_id(table):
+    """SERIAL 시퀀스 미설정 환경에서 id를 직접 계산"""
+    _mx = run_sql(f"SELECT COALESCE(MAX(id),0)+1 as nid FROM {table} WHERE id IS NOT NULL")
+    try:
+        return int(_mx.iloc[0]["nid"]) if not _mx.empty and _mx.iloc[0]["nid"] is not None else 1
+    except (TypeError, ValueError):
+        return 1
+
 # ── FIFO 계산 ──────────────────────────────────────────────────────────────
 def get_fifo_info(product_id, qty_needed):
     lots = run_sql("""
@@ -1833,21 +1849,11 @@ def page_med_sales():
                 st.error("장비명을 최소 1행 이상 입력해주세요.")
             else:
                 # 거래처 자동 등록 — RETURNING id 로 즉시 ID 획득
-                def _safe_id(val):
-                    if val is None: return None
-                    try:
-                        v = int(float(str(val)))
-                        return v if v > 0 else None
-                    except (TypeError, ValueError):
-                        return None
-
                 _m = med_clients[med_clients["hospital_name"] == hosp]
                 client_id = _safe_id(_m.iloc[0]["id"]) if not _m.empty else None
                 if client_id is None:
                     try:
-                        # SERIAL 시퀀스 미설정 환경 대비 — id를 직접 계산해 INSERT
-                        _mx = run_sql("SELECT COALESCE(MAX(id),0)+1 as nid FROM med_clients WHERE id IS NOT NULL")
-                        next_id = int(_mx.iloc[0]["nid"]) if not _mx.empty and _mx.iloc[0]["nid"] is not None else 1
+                        next_id = _med_next_id("med_clients")
                         execute("DELETE FROM med_clients WHERE hospital_name=? AND id IS NULL", (hosp,))
                         execute("INSERT INTO med_clients (id, hospital_name) VALUES (?,?)", (next_id, hosp))
                         client_id = next_id
@@ -1870,12 +1876,15 @@ def page_med_sales():
                         supply = round(sp / 1.1) if sp > 0 else 0
                         vat    = sp - supply
 
-                        if pname and pmfr:
-                            ep2 = run_sql("SELECT id FROM med_products WHERE name=? AND manufacturer=?", (pname, pmfr))
-                            if ep2.empty:
-                                execute("INSERT INTO med_products (name, manufacturer) VALUES (?,?)", (pname, pmfr))
-                        prod_row = run_sql("SELECT id FROM med_products WHERE name=?", (pname,))
-                        prod_id  = int(prod_row.iloc[0]["id"]) if not prod_row.empty else None
+                        prod_id = None
+                        if pname:
+                            _ep = run_sql("SELECT id FROM med_products WHERE name=? AND id IS NOT NULL ORDER BY id DESC LIMIT 1", (pname,))
+                            prod_id = _safe_id(_ep.iloc[0]["id"]) if not _ep.empty else None
+                            if prod_id is None and pmfr:
+                                _pid = _med_next_id("med_products")
+                                execute("DELETE FROM med_products WHERE name=? AND id IS NULL", (pname,))
+                                execute("INSERT INTO med_products (id, name, manufacturer) VALUES (?,?,?)", (_pid, pname, pmfr))
+                                prod_id = _pid
 
                         execute("""INSERT INTO med_stock_out
                             (date,client_id,product_id,product_name,manufacturer,serial_number,
@@ -2265,10 +2274,13 @@ def page_med_master():
                 st.error("병원명을 입력해주세요.")
             else:
                 if doc_cid is None:
-                    exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (doc_hosp,))
-                    if exc.empty:
-                        execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (doc_hosp,))
-                    doc_cid = int(run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (doc_hosp,)).iloc[0]["id"])
+                    _exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=? AND id IS NOT NULL ORDER BY id DESC LIMIT 1", (doc_hosp,))
+                    doc_cid = _safe_id(_exc.iloc[0]["id"]) if not _exc.empty else None
+                    if doc_cid is None:
+                        _did = _med_next_id("med_clients")
+                        execute("DELETE FROM med_clients WHERE hospital_name=? AND id IS NULL", (doc_hosp,))
+                        execute("INSERT INTO med_clients (id, hospital_name) VALUES (?,?)", (_did, doc_hosp))
+                        doc_cid = _did
                 fname = f"{doc_hosp}_{doc_type}_{date.today()}{Path(doc_file.name).suffix}"
                 fid, furl = drive_upload(doc_file.read(), fname, doc_file.type)
                 if fid:
