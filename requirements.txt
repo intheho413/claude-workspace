@@ -4,3 +4,6 @@ plotly
 Pillow
 openpyxl
 psycopg2-binary
+google-api-python-client
+google-auth
+python-docx

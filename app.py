@@ -235,6 +235,36 @@ def init_db():
     conn.execute("""CREATE TABLE IF NOT EXISTS payments (
         id SERIAL PRIMARY KEY, date TEXT NOT NULL, client_id INTEGER,
         amount INTEGER DEFAULT 0, linked_out_id INTEGER, note TEXT)""")
+    # ── 의료장비 테이블 ──
+    conn.execute("""CREATE TABLE IF NOT EXISTS med_products (
+        id SERIAL PRIMARY KEY, name TEXT NOT NULL, manufacturer TEXT, spec TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS med_clients (
+        id SERIAL PRIMARY KEY, hospital_name TEXT NOT NULL,
+        ceo_name TEXT, contact_person TEXT, phone TEXT, address TEXT,
+        credit_limit INTEGER DEFAULT 0)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS med_stock_in (
+        id SERIAL PRIMARY KEY, date TEXT NOT NULL, manufacturer TEXT,
+        product_name TEXT, price_type TEXT DEFAULT '매입',
+        purchase_price INTEGER DEFAULT 0, serial_number TEXT,
+        warranty_end TEXT, note TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS med_stock_out (
+        id SERIAL PRIMARY KEY, date TEXT NOT NULL, client_id INTEGER,
+        product_id INTEGER, product_name TEXT, manufacturer TEXT,
+        serial_number TEXT, is_purchased TEXT DEFAULT '매입',
+        payment_method TEXT DEFAULT '현금', sale_price INTEGER DEFAULT 0,
+        commission INTEGER DEFAULT 0, supply_amount INTEGER DEFAULT 0,
+        vat_amount INTEGER DEFAULT 0, total_amount INTEGER DEFAULT 0,
+        drive_file_id TEXT, drive_file_name TEXT, note TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS med_payments (
+        id SERIAL PRIMARY KEY, date TEXT NOT NULL, client_id INTEGER,
+        amount INTEGER DEFAULT 0, payment_method TEXT DEFAULT '현금',
+        linked_out_id INTEGER, note TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS med_contracts (
+        id SERIAL PRIMARY KEY, client_id INTEGER, linked_out_id INTEGER,
+        file_name TEXT, file_type TEXT DEFAULT '납품계약서',
+        drive_file_id TEXT, drive_file_url TEXT, uploaded_at TEXT, note TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS med_settings (
+        key TEXT PRIMARY KEY, value TEXT)""")
     conn.commit()
     conn.execute("UPDATE products SET settlement_price=sale_price WHERE settlement_price=0 AND sale_price>0")
     conn.commit()
@@ -307,6 +337,70 @@ def restore_fifo(out_id):
         WHERE product_id=? AND id=(SELECT id FROM stock_in WHERE product_id=? ORDER BY date ASC LIMIT 1)
     """, (row["quantity"], row["product_id"], row["product_id"]))
     conn.commit(); conn.close()
+
+# ══════════════════════════════════════════════════════════════════════════
+# Google Drive 헬퍼
+# ══════════════════════════════════════════════════════════════════════════
+@st.cache_resource(show_spinner=False)
+def _gdrive_service():
+    try:
+        import json as _j
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
+        info = _j.loads(st.secrets["google"]["service_account"])
+        creds = Credentials.from_service_account_info(
+            info, scopes=["https://www.googleapis.com/auth/drive"])
+        return build("drive", "v3", credentials=creds)
+    except Exception:
+        return None
+
+def _drive_folder_id():
+    try:
+        return st.secrets["google"]["drive_folder_id"]
+    except Exception:
+        return None
+
+def drive_upload(file_bytes, filename, mime_type):
+    svc = _gdrive_service()
+    if svc is None:
+        return None, None
+    try:
+        from googleapiclient.http import MediaIoBaseUpload
+        meta = {"name": filename, "parents": [_drive_folder_id()]}
+        media = MediaIoBaseUpload(io.BytesIO(file_bytes), mimetype=mime_type)
+        f = svc.files().create(body=meta, media_body=media, fields="id,webViewLink").execute()
+        svc.permissions().create(fileId=f["id"], body={"role": "reader", "type": "anyone"}).execute()
+        return f["id"], f["webViewLink"]
+    except Exception as e:
+        st.error(f"Drive 업로드 오류: {e}")
+        return None, None
+
+def drive_delete(file_id):
+    svc = _gdrive_service()
+    if svc is None or not file_id:
+        return False
+    try:
+        svc.files().delete(fileId=file_id).execute()
+        return True
+    except Exception:
+        return False
+
+def drive_download_bytes(file_id):
+    svc = _gdrive_service()
+    if svc is None or not file_id:
+        return None
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+        buf = io.BytesIO()
+        req = svc.files().get_media(fileId=file_id)
+        dl = MediaIoBaseDownload(buf, req)
+        done = False
+        while not done:
+            _, done = dl.next_chunk()
+        buf.seek(0)
+        return buf.read()
+    except Exception:
+        return None
 
 # ══════════════════════════════════════════════════════════════════════════
 # 대시보드
@@ -1435,11 +1529,711 @@ def page_master():
                 st.success("거래처 정보 저장 완료!"); st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════
+# 의료장비 — 리포트
+# ══════════════════════════════════════════════════════════════════════════
+def page_med_report():
+    today       = date.today()
+    today_str   = today.strftime("%Y-%m-%d")
+    month_start = today.replace(day=1).strftime("%Y-%m-%d")
+    year_start  = today.replace(month=1, day=1).strftime("%Y-%m-%d")
+    this_month  = today.strftime("%Y-%m")
+
+    kpi = run_sql("""
+        SELECT
+            COALESCE(SUM(CASE WHEN date=? THEN total_amount END),0)              as today,
+            COALESCE(SUM(CASE WHEN date BETWEEN ? AND ? THEN total_amount END),0) as month,
+            COALESCE(SUM(CASE WHEN date BETWEEN ? AND ? THEN total_amount END),0) as year,
+            COUNT(CASE WHEN date BETWEEN ? AND ? THEN 1 END)                      as month_cnt
+        FROM med_stock_out
+    """, (today_str, month_start, today_str, year_start, today_str, month_start, today_str)).iloc[0]
+
+    total_out  = run_sql("SELECT COALESCE(SUM(total_amount),0) as v FROM med_stock_out").iloc[0]["v"]
+    total_paid = run_sql("SELECT COALESCE(SUM(amount),0) as v FROM med_payments").iloc[0]["v"]
+    total_recv = total_out - total_paid
+
+    st.markdown(f"""
+    <div class="kpi-row">
+      <div class="kpi"><div class="kpi-label">오늘 납품액</div><div class="kpi-value">{fmt(kpi['today'])}</div><div class="kpi-sub">{today_str}</div></div>
+      <div class="kpi"><div class="kpi-label">이번달 납품액</div><div class="kpi-value">{fmt(kpi['month'])}</div><div class="kpi-sub">{this_month}</div></div>
+      <div class="kpi"><div class="kpi-label">연간 납품액</div><div class="kpi-value">{fmt(kpi['year'])}</div><div class="kpi-sub">{year_start[:4]}년</div></div>
+      <div class="kpi"><div class="kpi-label">전체 미수금</div><div class="kpi-value">{fmt(total_recv)}</div><div class="kpi-sub">누적</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    gc1, gc2 = st.columns(2)
+    with gc1:
+        monthly = run_sql("SELECT substr(date,1,7) as 월, SUM(total_amount) as 납품액 FROM med_stock_out GROUP BY 월 ORDER BY 월")
+        if not monthly.empty:
+            fig = px.bar(monthly, x="월", y="납품액", title="월별 납품액 추이", template="plotly_dark",
+                         color_discrete_sequence=["#0d9488"])
+            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                              margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+        else:
+            st.info("납품 데이터가 없습니다.")
+    with gc2:
+        pm = run_sql("SELECT payment_method as 결제방식, SUM(total_amount) as 금액 FROM med_stock_out GROUP BY payment_method")
+        if not pm.empty:
+            fig2 = px.pie(pm, values="금액", names="결제방식", title="결제방식별 비중",
+                          template="plotly_dark", color_discrete_sequence=px.colors.sequential.Teal)
+            fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=30, b=0))
+            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+
+    st.subheader("병원별 납품 현황")
+    hosp = run_sql("""
+        SELECT c.hospital_name as 병원명,
+               COUNT(o.id) as 납품건수,
+               COALESCE(SUM(o.total_amount),0) as 납품액합계,
+               COALESCE(SUM(p.amount),0) as 수금액,
+               COALESCE(SUM(o.total_amount),0)-COALESCE(SUM(p.amount),0) as 미수금
+        FROM med_clients c
+        LEFT JOIN med_stock_out o ON c.id=o.client_id
+        LEFT JOIN med_payments  p ON c.id=p.client_id
+        GROUP BY c.id, c.hospital_name ORDER BY 납품액합계 DESC
+    """)
+    if not hosp.empty:
+        d = hosp.copy()
+        for col in ["납품액합계","수금액","미수금"]:
+            d[col] = d[col].apply(fmt)
+        st.dataframe(d, use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="card"><div class="card-title">📥 엑셀 다운로드</div>', unsafe_allow_html=True)
+    xc1, xc2, xc3 = st.columns([2, 2, 2])
+    xl_from = xc1.date_input("시작일", value=date(today.year, 1, 1), key="med_xl_from")
+    xl_to   = xc2.date_input("종료일", value=today, key="med_xl_to")
+    if xc3.button("📊 엑셀 생성", type="primary", use_container_width=True, key="med_gen_xl"):
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        frm, to_ = str(xl_from), str(xl_to)
+        wb = Workbook()
+        hf = Font(bold=True, color="FFFFFF", size=10)
+        hfl = PatternFill("solid", fgColor="0F766E")
+        th = Side(style="thin", color="CCCCCC")
+        bd = Border(left=th, right=th, top=th, bottom=th)
+        ctr = Alignment(horizontal="center", vertical="center")
+        def sh(ws, row, cols):
+            for c in range(1, cols+1):
+                cell = ws.cell(row=row, column=c)
+                cell.font=hf; cell.fill=hfl; cell.alignment=ctr; cell.border=bd
+        def aw(ws):
+            for col in ws.columns:
+                ml = max((len(str(cell.value or "")) for cell in col), default=0)
+                ws.column_dimensions[get_column_letter(col[0].column)].width = min(ml+4, 30)
+
+        df_out = run_sql("""
+            SELECT o.date as 날짜, c.hospital_name as 병원명, o.product_name as 장비명,
+                   o.manufacturer as 장비사, o.serial_number as 시리얼번호,
+                   o.is_purchased as 매입여부, o.payment_method as 결제방식,
+                   o.sale_price as 납품가, o.commission as 수수료, o.total_amount as 합계
+            FROM med_stock_out o LEFT JOIN med_clients c ON o.client_id=c.id
+            WHERE o.date BETWEEN ? AND ? ORDER BY o.date
+        """, (frm, to_))
+        ws1 = wb.active; ws1.title = "납품 내역"
+        cols1 = ["날짜","병원명","장비명","장비사","시리얼번호","매입여부","결제방식","납품가","수수료","합계"]
+        ws1.append(cols1); sh(ws1, 1, len(cols1))
+        for _, r in df_out.iterrows():
+            ws1.append([r["날짜"],r["병원명"],r["장비명"],r["장비사"],r["시리얼번호"],
+                        r["매입여부"],r["결제방식"],int(r["납품가"]),int(r["수수료"]),int(r["합계"])])
+        aw(ws1)
+
+        df_hosp = run_sql("""
+            SELECT c.hospital_name as 병원명, COUNT(o.id) as 납품건수,
+                   COALESCE(SUM(o.total_amount),0) as 납품액합계,
+                   COALESCE(SUM(p.amount),0) as 수금액,
+                   COALESCE(SUM(o.total_amount),0)-COALESCE(SUM(p.amount),0) as 미수금
+            FROM med_clients c
+            LEFT JOIN med_stock_out o ON c.id=o.client_id AND o.date BETWEEN ? AND ?
+            LEFT JOIN med_payments  p ON c.id=p.client_id AND p.date BETWEEN ? AND ?
+            GROUP BY c.id, c.hospital_name ORDER BY 납품액합계 DESC
+        """, (frm, to_, frm, to_))
+        ws2 = wb.create_sheet("병원별 요약")
+        cols2 = ["병원명","납품건수","납품액합계","수금액","미수금"]
+        ws2.append(cols2); sh(ws2, 1, len(cols2))
+        for _, r in df_hosp.iterrows():
+            ws2.append([r["병원명"],int(r["납품건수"]),int(r["납품액합계"]),int(r["수금액"]),int(r["미수금"])])
+        aw(ws2)
+
+        buf2 = io.BytesIO(); wb.save(buf2); buf2.seek(0)
+        st.download_button("⬇ 엑셀 다운로드", data=buf2,
+                           file_name=f"의료장비_리포트_{frm}_{to_}.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 의료장비 — 영업 관리
+# ══════════════════════════════════════════════════════════════════════════
+def page_med_sales():
+    tab1, tab2 = st.tabs(["📥 매입 등록", "📤 납품 등록"])
+
+    # ── 매입 등록 ──
+    with tab1:
+        ep = run_sql("SELECT id, name, manufacturer FROM med_products ORDER BY name")
+        mfrs = sorted(ep["manufacturer"].dropna().unique().tolist()) if not ep.empty else []
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        in_mode = st.radio("입력 방식", ["기존 선택", "직접 입력"], horizontal=True, key="med_in_mode")
+        in_date = st.date_input("매입일", value=date.today(), key="med_in_date")
+
+        if in_mode == "기존 선택" and not ep.empty:
+            c1, c2 = st.columns(2)
+            sel_mfr = c1.selectbox("장비사", ["전체"] + mfrs, key="med_in_mfr_sel")
+            filtered = ep if sel_mfr == "전체" else ep[ep["manufacturer"] == sel_mfr]
+            sel_prod = c2.selectbox("장비명", filtered["name"].tolist() if not filtered.empty else [], key="med_in_prod_sel")
+            if not filtered.empty and sel_prod:
+                row_p = filtered[filtered["name"] == sel_prod]
+                manufacturer = row_p["manufacturer"].iloc[0] if not row_p.empty else ""
+            else:
+                manufacturer = ""
+            product_name = sel_prod
+        else:
+            c1, c2 = st.columns(2)
+            manufacturer  = c1.text_input("장비사", key="med_in_mfr_txt")
+            product_name  = c2.text_input("장비명", key="med_in_prod_txt")
+
+        c3, c4 = st.columns(2)
+        price_type     = c3.radio("가격 유형", ["직납", "매입"], horizontal=True, key="med_in_pt")
+        purchase_price = c4.number_input("장비 가격", min_value=0, step=100000, key="med_in_price")
+
+        c5, c6 = st.columns(2)
+        serial      = c5.text_input("시리얼번호", key="med_in_serial")
+        warranty    = c6.date_input("보증만료일", value=None, key="med_in_warranty")
+        note_in     = st.text_input("비고", key="med_in_note")
+
+        if st.button("✅ 매입 등록", type="primary", use_container_width=True, key="med_in_submit"):
+            if not manufacturer or not product_name:
+                st.error("장비사와 장비명을 입력해주세요.")
+            else:
+                exists = run_sql("SELECT id FROM med_products WHERE name=? AND manufacturer=?", (product_name, manufacturer))
+                if exists.empty:
+                    execute("INSERT INTO med_products (name, manufacturer) VALUES (?,?)", (product_name, manufacturer))
+                execute("""INSERT INTO med_stock_in
+                    (date,manufacturer,product_name,price_type,purchase_price,serial_number,warranty_end,note)
+                    VALUES (?,?,?,?,?,?,?,?)""",
+                    (str(in_date), manufacturer, product_name, price_type, purchase_price,
+                     serial, str(warranty) if warranty else None, note_in))
+                st.success(f"매입 등록 완료 — {manufacturer} {product_name}"); st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        df_in = run_sql("""SELECT id, date as 날짜, manufacturer as 장비사, product_name as 장비명,
+                                  price_type as 가격유형, purchase_price as 매입가,
+                                  COALESCE(serial_number,'') as 시리얼번호,
+                                  COALESCE(warranty_end,'') as 보증만료일, COALESCE(note,'') as 비고
+                           FROM med_stock_in ORDER BY date DESC""")
+        if not df_in.empty:
+            st.subheader("전체 매입 내역")
+            disp = df_in.copy(); disp.insert(0, "삭제", False)
+            edited_in = st.data_editor(disp, use_container_width=True, hide_index=True, num_rows="fixed",
+                disabled=["날짜","장비사","장비명","가격유형","매입가","시리얼번호","보증만료일","비고"],
+                column_config={"id": None, "삭제": st.column_config.CheckboxColumn("삭제", width="small"),
+                               "매입가": st.column_config.NumberColumn("매입가", format="₩%d")},
+                key="med_in_hist")
+            if st.button("🗑 삭제 적용", key="med_in_del", type="primary"):
+                to_del = edited_in[edited_in["삭제"] == True]
+                if not to_del.empty:
+                    conn = get_conn()
+                    for did in to_del["id"].astype(int):
+                        conn.execute("DELETE FROM med_stock_in WHERE id=?", (did,))
+                    conn.commit(); conn.close()
+                    st.success(f"{len(to_del)}건 삭제 완료"); st.rerun()
+                else:
+                    st.info("삭제할 항목의 체크박스를 선택해주세요.")
+
+    # ── 납품 등록 ──
+    with tab2:
+        med_clients = run_sql("SELECT id, hospital_name FROM med_clients ORDER BY hospital_name")
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        out_date = st.date_input("납품일", value=date.today(), key="med_out_date")
+
+        hosp_mode = st.radio("병원 입력 방식", ["기존 선택", "직접 입력"], horizontal=True, key="med_out_hosp_mode")
+        if hosp_mode == "기존 선택" and not med_clients.empty:
+            hospital_name = st.selectbox("병원명", med_clients["hospital_name"].tolist(), key="med_out_hosp_sel")
+            client_id     = int(med_clients[med_clients["hospital_name"] == hospital_name].iloc[0]["id"])
+        else:
+            hospital_name = st.text_input("병원명 (직접 입력)", key="med_out_hosp_txt")
+            client_id     = None
+
+        oc1, oc2 = st.columns(2)
+        product_name_out = oc1.text_input("장비명", key="med_out_prod")
+        manufacturer_out = oc2.text_input("장비사", key="med_out_mfr")
+
+        mc1, mc2 = st.columns(2)
+        sale_price = mc1.number_input("납품가 (VAT포함)", min_value=0, step=100000, key="med_out_sale")
+        commission = mc2.number_input("장비 수수료", min_value=0, step=10000, key="med_out_comm")
+
+        supply_amount = round(sale_price / 1.1) if sale_price > 0 else 0
+        vat_amount    = sale_price - supply_amount
+        if sale_price > 0:
+            st.caption(f"공급가액: {fmt(supply_amount)} | 부가세: {fmt(vat_amount)} | 합계: {fmt(sale_price)}")
+
+        fc1, fc2, fc3 = st.columns(3)
+        serial_out     = fc1.text_input("시리얼번호", key="med_out_serial")
+        is_purchased   = fc2.radio("매입여부", ["매입", "위탁"], horizontal=True, key="med_out_is_purch")
+        payment_method = fc3.radio("결제방식", ["현금", "카드", "리스"], horizontal=True, key="med_out_pay")
+        note_out       = st.text_input("비고", key="med_out_note")
+
+        st.markdown("**계약서 파일 첨부** (선택)")
+        contract_file = st.file_uploader("JPG / PNG / PDF", type=["jpg","jpeg","png","pdf"], key="med_out_file")
+
+        if st.button("✅ 납품 등록", type="primary", use_container_width=True, key="med_out_submit"):
+            if not hospital_name or not product_name_out:
+                st.error("병원명과 장비명을 입력해주세요.")
+            else:
+                if client_id is None:
+                    exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hospital_name,))
+                    if exc.empty:
+                        execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hospital_name,))
+                    client_id = int(run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (hospital_name,)).iloc[0]["id"])
+
+                if product_name_out and manufacturer_out:
+                    ep2 = run_sql("SELECT id FROM med_products WHERE name=? AND manufacturer=?", (product_name_out, manufacturer_out))
+                    if ep2.empty:
+                        execute("INSERT INTO med_products (name, manufacturer) VALUES (?,?)", (product_name_out, manufacturer_out))
+                prod_row = run_sql("SELECT id FROM med_products WHERE name=?", (product_name_out,))
+                prod_id  = int(prod_row.iloc[0]["id"]) if not prod_row.empty else None
+
+                drive_file_id, drive_file_name = None, None
+                if contract_file is not None:
+                    svc = _gdrive_service()
+                    if svc:
+                        fname = f"{hospital_name}_{product_name_out}_{out_date}{Path(contract_file.name).suffix}"
+                        drive_file_id, _ = drive_upload(contract_file.read(), fname, contract_file.type)
+                        drive_file_name  = fname
+                    else:
+                        st.warning("Google Drive 미연동 — 파일 첨부 건너뜀")
+
+                execute("""INSERT INTO med_stock_out
+                    (date,client_id,product_id,product_name,manufacturer,serial_number,
+                     is_purchased,payment_method,sale_price,commission,
+                     supply_amount,vat_amount,total_amount,drive_file_id,drive_file_name,note)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (str(out_date), client_id, prod_id, product_name_out, manufacturer_out,
+                     serial_out, is_purchased, payment_method, sale_price, commission,
+                     supply_amount, vat_amount, sale_price, drive_file_id, drive_file_name, note_out))
+                st.success(f"납품 등록 완료 — {hospital_name} | {product_name_out}"); st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        df_out = run_sql("""SELECT o.id, o.date as 날짜, c.hospital_name as 병원명,
+                                   o.product_name as 장비명, o.manufacturer as 장비사,
+                                   o.is_purchased as 매입여부, o.payment_method as 결제방식,
+                                   o.sale_price as 납품가, o.commission as 수수료, o.total_amount as 합계,
+                                   COALESCE(o.drive_file_name,'') as 첨부파일, o.drive_file_id
+                            FROM med_stock_out o LEFT JOIN med_clients c ON o.client_id=c.id
+                            ORDER BY o.date DESC""")
+        if not df_out.empty:
+            st.subheader("전체 납품 내역")
+            disp_out = df_out.drop(columns=["drive_file_id"]).copy()
+            disp_out.insert(0, "삭제", False)
+            edited_out = st.data_editor(disp_out, use_container_width=True, hide_index=True, num_rows="fixed",
+                disabled=["날짜","병원명","장비명","장비사","매입여부","결제방식","납품가","수수료","합계","첨부파일"],
+                column_config={"id": None, "삭제": st.column_config.CheckboxColumn("삭제", width="small"),
+                               "납품가": st.column_config.NumberColumn("납품가", format="₩%d"),
+                               "합계":   st.column_config.NumberColumn("합계",   format="₩%d")},
+                key="med_out_hist")
+            if st.button("🗑 삭제 적용", key="med_out_del", type="primary"):
+                to_del = edited_out[edited_out["삭제"] == True]
+                if not to_del.empty:
+                    conn = get_conn()
+                    for idx in to_del.index:
+                        did = int(df_out.loc[idx, "id"])
+                        fid = df_out.loc[idx, "drive_file_id"]
+                        if fid: drive_delete(fid)
+                        conn.execute("DELETE FROM med_stock_out WHERE id=?", (did,))
+                    conn.commit(); conn.close()
+                    st.success(f"{len(to_del)}건 삭제 완료"); st.rerun()
+                else:
+                    st.info("삭제할 항목의 체크박스를 선택해주세요.")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 의료장비 — 수금 현황
+# ══════════════════════════════════════════════════════════════════════════
+def page_med_receivables():
+    recv = run_sql("""
+        SELECT c.id, c.hospital_name as 병원명,
+               COALESCE(o.tot,0) as 총납품액,
+               COALESCE(p.tot,0) as 총수금
+        FROM med_clients c
+        LEFT JOIN (SELECT client_id, SUM(total_amount) as tot FROM med_stock_out GROUP BY client_id) o ON c.id=o.client_id
+        LEFT JOIN (SELECT client_id, SUM(amount)       as tot FROM med_payments  GROUP BY client_id) p ON c.id=p.client_id
+        ORDER BY (COALESCE(o.tot,0)-COALESCE(p.tot,0)) DESC
+    """)
+    if recv.empty:
+        st.info("거래처 데이터가 없습니다. 납품을 먼저 등록해주세요.")
+        return
+    recv["미수금"] = recv["총납품액"] - recv["총수금"]
+    st.metric("전체 미수금 합계", fmt(recv["미수금"].sum()))
+
+    tab1, tab2, tab3 = st.tabs(["🏥 병원별 미수금", "💳 수금 등록", "📋 거래처 원장"])
+
+    with tab1:
+        disp = recv[recv["미수금"] > 0].copy()
+        if disp.empty:
+            st.success("미수금 없음")
+        else:
+            for col in ["총납품액","총수금","미수금"]:
+                disp[col] = disp[col].apply(fmt)
+            st.dataframe(disp[["병원명","총납품액","총수금","미수금"]], use_container_width=True, hide_index=True)
+
+        st.divider()
+        st.markdown("**리스 납품 현황**")
+        lease = run_sql("""SELECT o.date as 날짜, c.hospital_name as 병원명, o.product_name as 장비명,
+                                  o.total_amount as 납품가, COALESCE(o.note,'') as 비고
+                           FROM med_stock_out o LEFT JOIN med_clients c ON o.client_id=c.id
+                           WHERE o.payment_method='리스' ORDER BY o.date DESC""")
+        if not lease.empty:
+            lease["납품가"] = lease["납품가"].apply(fmt)
+            st.dataframe(lease, use_container_width=True, hide_index=True)
+        else:
+            st.info("리스 납품 건 없음")
+
+    with tab2:
+        clients_pay = run_sql("SELECT id, hospital_name FROM med_clients ORDER BY hospital_name")
+        if clients_pay.empty:
+            st.warning("거래처를 먼저 등록해주세요.")
+        else:
+            pay_client = st.selectbox("병원 선택", clients_pay["hospital_name"].tolist(), key="med_pay_client")
+            cid = int(clients_pay[clients_pay["hospital_name"] == pay_client].iloc[0]["id"])
+            row = recv[recv["병원명"] == pay_client]
+            outstanding = int(row["미수금"].iloc[0]) if not row.empty else 0
+            if outstanding > 0:
+                st.info(f"현재 미수금: **{fmt(outstanding)}**")
+            else:
+                st.success("현재 미수금: 없음")
+
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            with st.form("med_pay_form"):
+                pc1, pc2, pc3 = st.columns(3)
+                pay_date   = pc1.date_input("수금일", value=date.today())
+                pay_amount = pc2.number_input("수금액", min_value=0, step=100000)
+                pay_method = pc3.radio("결제방식", ["현금", "카드", "리스"], horizontal=True)
+                pay_note   = st.text_input("메모")
+                if st.form_submit_button("✅ 수금 등록", use_container_width=True):
+                    execute("INSERT INTO med_payments (date,client_id,amount,payment_method,note) VALUES (?,?,?,?,?)",
+                            (str(pay_date), cid, pay_amount, pay_method, pay_note))
+                    st.success(f"수금 완료 — {pay_client} {fmt(pay_amount)}"); st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    with tab3:
+        clients_list = run_sql("SELECT id, hospital_name FROM med_clients")
+        if clients_list.empty:
+            st.info("거래처가 없습니다.")
+        else:
+            sel = st.selectbox("병원 선택", clients_list["hospital_name"].tolist(), key="med_ledger_sel")
+            cid2 = int(clients_list[clients_list["hospital_name"] == sel].iloc[0]["id"])
+            detail = run_sql("""
+                SELECT date as 날짜, '납품' as 구분, total_amount as 납품액, 0 as 수금액
+                FROM med_stock_out WHERE client_id=?
+                UNION ALL
+                SELECT date, '수금', 0, amount FROM med_payments WHERE client_id=?
+                ORDER BY 날짜 ASC
+            """, (cid2, cid2))
+            if not detail.empty:
+                d2 = detail.copy()
+                d2["납품액"] = d2["납품액"].apply(fmt)
+                d2["수금액"] = d2["수금액"].apply(fmt)
+                st.dataframe(d2, use_container_width=True, hide_index=True)
+            else:
+                st.info("거래 내역 없음")
+
+            st.divider()
+            st.markdown("**✏️ 수금 내역 수정/삭제**")
+            pay_df = run_sql("""SELECT id, date as 날짜, amount as 수금액,
+                                       payment_method as 결제방식, COALESCE(note,'') as 메모
+                                FROM med_payments WHERE client_id=? ORDER BY date DESC""", (cid2,))
+            if pay_df.empty:
+                st.info("등록된 수금 내역이 없습니다.")
+            else:
+                edited_pay = st.data_editor(pay_df, use_container_width=True, hide_index=True, num_rows="fixed",
+                    column_config={
+                        "id":     st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                        "날짜":   st.column_config.TextColumn("날짜 ✏️"),
+                        "수금액": st.column_config.NumberColumn("수금액 ✏️", format="%d"),
+                        "결제방식": st.column_config.SelectboxColumn("결제방식", options=["현금","카드","리스"]),
+                        "메모":   st.column_config.TextColumn("메모 ✏️"),
+                    }, key="med_pay_edit")
+                pa, pb = st.columns(2)
+                if pa.button("💾 수정 저장", type="primary", use_container_width=True, key="med_pay_save"):
+                    conn = get_conn(); changed = 0
+                    for i, row in edited_pay.iterrows():
+                        orig = pay_df.iloc[i]
+                        if (str(row["날짜"]) != str(orig["날짜"]) or
+                                int(row["수금액"]) != int(orig["수금액"]) or
+                                str(row["메모"]) != str(orig["메모"])):
+                            conn.execute("UPDATE med_payments SET date=?,amount=?,payment_method=?,note=? WHERE id=?",
+                                        (str(row["날짜"]), int(row["수금액"]), str(row["결제방식"]),
+                                         str(row["메모"]), int(row["id"])))
+                            changed += 1
+                    conn.commit(); conn.close()
+                    if changed: st.success(f"{changed}건 수정 완료!"); st.rerun()
+                    else: st.info("변경된 내용이 없습니다.")
+
+                del_opts = pay_df.apply(lambda r: f"{r['날짜']} | {fmt(r['수금액'])}", axis=1).tolist()
+                del_sels = st.multiselect("삭제할 수금 내역", del_opts, key="med_pay_del_sel")
+                if del_sels and pb.button(f"🗑 {len(del_sels)}건 삭제", type="primary",
+                                          use_container_width=True, key="med_pay_del_btn"):
+                    del_ids = [int(pay_df.iloc[del_opts.index(s)]["id"]) for s in del_sels]
+                    conn = get_conn()
+                    for pid in del_ids: conn.execute("DELETE FROM med_payments WHERE id=?", (pid,))
+                    conn.commit(); conn.close()
+                    st.success(f"{len(del_ids)}건 삭제 완료!"); st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 의료장비 — 기초 관리
+# ══════════════════════════════════════════════════════════════════════════
+def page_med_master():
+    tab1, tab2, tab3, tab4 = st.tabs(["🔧 장비 관리", "🏥 거래처 관리", "📄 계약서 발급", "📁 문서함"])
+
+    # ── 장비 관리 ──
+    with tab1:
+        with st.expander("➕ 장비 등록"):
+            with st.form("med_prod_form"):
+                mc1, mc2, mc3 = st.columns(3)
+                pname = mc1.text_input("장비명 *")
+                mfr   = mc2.text_input("장비사 *")
+                spec  = mc3.text_input("규격")
+                if st.form_submit_button("등록", use_container_width=True):
+                    if pname and mfr:
+                        execute("INSERT INTO med_products (name,manufacturer,spec) VALUES (?,?,?)", (pname, mfr, spec))
+                        st.success(f"'{pname}' 등록 완료"); st.rerun()
+        prods = run_sql("SELECT id, name as 장비명, manufacturer as 장비사, COALESCE(spec,'') as 규격 FROM med_products ORDER BY name")
+        if not prods.empty:
+            edited_p = st.data_editor(prods, use_container_width=True, hide_index=True, num_rows="fixed",
+                column_config={
+                    "id":   st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                    "장비명": st.column_config.TextColumn("장비명 ✏️"),
+                    "장비사": st.column_config.TextColumn("장비사 ✏️"),
+                    "규격":   st.column_config.TextColumn("규격 ✏️"),
+                }, key="med_prod_edit")
+            ca, cb = st.columns(2)
+            if ca.button("💾 저장", type="primary", use_container_width=True, key="med_prod_save"):
+                conn = get_conn()
+                for i, row in edited_p.iterrows():
+                    conn.execute("UPDATE med_products SET name=?,manufacturer=?,spec=? WHERE id=?",
+                                 (str(row["장비명"]), str(row["장비사"]), str(row["규격"]), int(row["id"])))
+                conn.commit(); conn.close(); st.success("저장 완료!"); st.rerun()
+            del_p = st.multiselect("삭제할 장비", prods["장비명"].tolist(), key="med_prod_del")
+            if del_p and cb.button(f"🗑 {len(del_p)}개 삭제", type="primary", use_container_width=True, key="med_prod_del_btn"):
+                conn = get_conn()
+                for name in del_p:
+                    conn.execute("DELETE FROM med_products WHERE id=?", (int(prods[prods["장비명"]==name].iloc[0]["id"]),))
+                conn.commit(); conn.close(); st.success(f"{len(del_p)}개 삭제 완료"); st.rerun()
+
+    # ── 거래처 관리 ──
+    with tab2:
+        with st.expander("➕ 거래처 등록"):
+            with st.form("med_client_form"):
+                cc1, cc2 = st.columns(2)
+                hname   = cc1.text_input("병원명 *")
+                ceo     = cc2.text_input("대표자명")
+                cc3, cc4 = st.columns(2)
+                contact = cc3.text_input("담당자")
+                phone   = cc4.text_input("연락처")
+                address = st.text_input("주소")
+                credit  = st.number_input("여신한도", min_value=0, step=1000000)
+                if st.form_submit_button("등록", use_container_width=True):
+                    if hname:
+                        execute("INSERT INTO med_clients (hospital_name,ceo_name,contact_person,phone,address,credit_limit) VALUES (?,?,?,?,?,?)",
+                                (hname, ceo, contact, phone, address, credit))
+                        st.success(f"'{hname}' 등록 완료"); st.rerun()
+        clients_df = run_sql("""SELECT id, hospital_name as 병원명, COALESCE(ceo_name,'') as 대표자,
+                                       COALESCE(contact_person,'') as 담당자, COALESCE(phone,'') as 연락처,
+                                       COALESCE(address,'') as 주소, credit_limit as 여신한도
+                                FROM med_clients ORDER BY hospital_name""")
+        if not clients_df.empty:
+            edited_cl = st.data_editor(clients_df, use_container_width=True, hide_index=True, num_rows="fixed",
+                column_config={
+                    "id":    st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                    "병원명":  st.column_config.TextColumn("병원명 ✏️"),
+                    "대표자":  st.column_config.TextColumn("대표자 ✏️"),
+                    "담당자":  st.column_config.TextColumn("담당자 ✏️"),
+                    "연락처":  st.column_config.TextColumn("연락처 ✏️"),
+                    "주소":    st.column_config.TextColumn("주소 ✏️"),
+                    "여신한도": st.column_config.NumberColumn("여신한도 ✏️", format="₩%d"),
+                }, key="med_client_edit")
+            da, db = st.columns(2)
+            if da.button("💾 저장", type="primary", use_container_width=True, key="med_client_save"):
+                conn = get_conn()
+                for i, row in edited_cl.iterrows():
+                    conn.execute("""UPDATE med_clients SET hospital_name=?,ceo_name=?,contact_person=?,
+                                    phone=?,address=?,credit_limit=? WHERE id=?""",
+                                 (str(row["병원명"]), str(row["대표자"]), str(row["담당자"]),
+                                  str(row["연락처"]), str(row["주소"]), int(row["여신한도"]), int(row["id"])))
+                conn.commit(); conn.close(); st.success("저장 완료!"); st.rerun()
+            del_cl = st.multiselect("삭제할 거래처", clients_df["병원명"].tolist(), key="med_client_del")
+            if del_cl and db.button(f"🗑 {len(del_cl)}개 삭제", type="primary", use_container_width=True, key="med_client_del_btn"):
+                conn = get_conn()
+                for name in del_cl:
+                    conn.execute("DELETE FROM med_clients WHERE id=?", (int(clients_df[clients_df["병원명"]==name].iloc[0]["id"]),))
+                conn.commit(); conn.close(); st.success(f"{len(del_cl)}개 삭제 완료"); st.rerun()
+
+    # ── 계약서 발급 ──
+    with tab3:
+        tmpl_row = run_sql("SELECT value FROM med_settings WHERE key='contract_template_id'")
+        has_tmpl = not tmpl_row.empty and tmpl_row.iloc[0]["value"]
+
+        if has_tmpl:
+            st.success("✅ 계약서 양식 등록됨")
+        else:
+            st.warning("계약서 양식이 없습니다. 먼저 업로드해주세요.")
+
+        with st.expander("📤 계약서 양식 업로드 (관리자)"):
+            st.caption("양식 .docx 파일 안에 {{병원명}}, {{공급가격}} 등 플레이스홀더를 삽입해두세요.")
+            tmpl_file = st.file_uploader("계약서 양식 (.docx)", type=["docx"], key="med_tmpl_up")
+            if tmpl_file and st.button("양식 저장", type="primary", key="med_tmpl_save"):
+                if has_tmpl:
+                    drive_delete(tmpl_row.iloc[0]["value"])
+                fid, _ = drive_upload(tmpl_file.read(), "_CONTRACT_TEMPLATE_.docx",
+                                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                if fid:
+                    execute("INSERT INTO med_settings (key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value",
+                            ("contract_template_id", fid))
+                    st.success("양식 저장 완료!"); st.rerun()
+
+        st.divider()
+        st.markdown("**계약서 생성**")
+        clients_c = run_sql("SELECT id, hospital_name, COALESCE(ceo_name,'') as ceo, COALESCE(address,'') as address FROM med_clients ORDER BY hospital_name")
+
+        cm = st.radio("병원 입력", ["선택", "직접 입력"], horizontal=True, key="med_cont_mode")
+        if cm == "선택" and not clients_c.empty:
+            cont_hosp = st.selectbox("병원명", clients_c["hospital_name"].tolist(), key="med_cont_hosp")
+            hr = clients_c[clients_c["hospital_name"] == cont_hosp].iloc[0]
+            cont_ceo  = hr["ceo"]
+            cont_addr = hr["address"]
+        else:
+            cont_hosp = st.text_input("병원명", key="med_cont_hosp_txt")
+            cont_ceo  = st.text_input("대표자명", key="med_cont_ceo_txt")
+            cont_addr = st.text_input("소재지", key="med_cont_addr_txt")
+
+        c1, c2 = st.columns(2)
+        cont_prod    = c1.text_input("제품명", key="med_cont_prod")
+        cont_price   = c2.number_input("공급가격 (VAT포함)", min_value=0, step=1000000, key="med_cont_price")
+        cont_pay     = st.radio("지불방법", ["현금", "리스", "일시불"], horizontal=True, key="med_cont_pay")
+        cont_date    = st.date_input("계약일", value=date.today(), key="med_cont_date")
+
+        if st.button("📄 계약서 생성 → 다운로드", type="primary", use_container_width=True, key="med_cont_gen"):
+            if not has_tmpl:
+                st.error("계약서 양식을 먼저 업로드해주세요.")
+            elif not cont_hosp or not cont_price:
+                st.error("병원명과 공급가격을 입력해주세요.")
+            else:
+                try:
+                    from docx import Document
+                    tmpl_bytes = drive_download_bytes(tmpl_row.iloc[0]["value"])
+                    if tmpl_bytes is None:
+                        st.error("템플릿 파일을 불러올 수 없습니다.")
+                    else:
+                        doc = Document(io.BytesIO(tmpl_bytes))
+                        repls = {
+                            "{{병원명}}":   cont_hosp,
+                            "{{공급가격}}": f"₩{int(cont_price):,}원",
+                            "{{제품명}}":   cont_prod,
+                            "{{지불방법}}": cont_pay,
+                            "{{계약일}}":   cont_date.strftime("%Y년 %m월 %d일"),
+                            "{{대표자}}":   cont_ceo,
+                            "{{소재지}}":   cont_addr,
+                        }
+                        def _replace_para(para):
+                            for k, v in repls.items():
+                                if k in para.text:
+                                    for run in para.runs:
+                                        if k in run.text:
+                                            run.text = run.text.replace(k, v)
+                        for para in doc.paragraphs:
+                            _replace_para(para)
+                        for table in doc.tables:
+                            for row in table.rows:
+                                for cell in row.cells:
+                                    for para in cell.paragraphs:
+                                        _replace_para(para)
+                        cbuf = io.BytesIO()
+                        doc.save(cbuf); cbuf.seek(0)
+                        st.download_button("⬇ 계약서 다운로드", data=cbuf,
+                                           file_name=f"계약서_{cont_hosp}_{cont_date}.docx",
+                                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                           use_container_width=True)
+                except Exception as e:
+                    st.error(f"계약서 생성 오류: {e}")
+
+    # ── 문서함 ──
+    with tab4:
+        st.markdown("**파일 업로드**")
+        clients_doc = run_sql("SELECT id, hospital_name FROM med_clients ORDER BY hospital_name")
+
+        dc1, dc2 = st.columns(2)
+        doc_hosp_mode = dc1.radio("병원", ["선택", "직접입력"], horizontal=True, key="doc_hosp_mode")
+        if doc_hosp_mode == "선택" and not clients_doc.empty:
+            doc_hosp = dc1.selectbox("병원명", clients_doc["hospital_name"].tolist(), key="doc_hosp_sel", label_visibility="collapsed")
+            doc_cid  = int(clients_doc[clients_doc["hospital_name"] == doc_hosp].iloc[0]["id"])
+        else:
+            doc_hosp = dc1.text_input("병원명 직접입력", key="doc_hosp_txt", label_visibility="collapsed")
+            doc_cid  = None
+
+        doc_type = dc2.selectbox("문서 종류", ["납품계약서", "매매계약서", "기타"], key="doc_type")
+        doc_file = st.file_uploader("파일 선택 (JPG / PNG / PDF)", type=["jpg","jpeg","png","pdf"], key="doc_file_up")
+
+        if doc_file and st.button("📤 업로드", type="primary", key="doc_up_btn"):
+            if not doc_hosp:
+                st.error("병원명을 입력해주세요.")
+            else:
+                if doc_cid is None:
+                    exc = run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (doc_hosp,))
+                    if exc.empty:
+                        execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (doc_hosp,))
+                    doc_cid = int(run_sql("SELECT id FROM med_clients WHERE hospital_name=?", (doc_hosp,)).iloc[0]["id"])
+                fname = f"{doc_hosp}_{doc_type}_{date.today()}{Path(doc_file.name).suffix}"
+                fid, furl = drive_upload(doc_file.read(), fname, doc_file.type)
+                if fid:
+                    execute("""INSERT INTO med_contracts (client_id,file_name,file_type,drive_file_id,drive_file_url,uploaded_at)
+                               VALUES (?,?,?,?,?,?)""",
+                            (doc_cid, fname, doc_type, fid, furl, str(date.today())))
+                    st.success(f"업로드 완료 — {fname}"); st.rerun()
+
+        st.divider()
+        st.markdown("**문서 목록**")
+        flt = st.selectbox("병원 필터", ["전체"] + (clients_doc["hospital_name"].tolist() if not clients_doc.empty else []), key="doc_filter")
+
+        docs_q = """SELECT d.id, c.hospital_name as 병원명, d.file_name as 파일명,
+                           d.file_type as 종류, d.uploaded_at as 업로드일,
+                           d.drive_file_url as url, d.drive_file_id as fid
+                    FROM med_contracts d LEFT JOIN med_clients c ON d.client_id=c.id"""
+        if flt == "전체":
+            docs = run_sql(docs_q + " ORDER BY d.uploaded_at DESC")
+        else:
+            cid_f = int(clients_doc[clients_doc["hospital_name"] == flt].iloc[0]["id"])
+            docs  = run_sql(docs_q + " WHERE d.client_id=? ORDER BY d.uploaded_at DESC", (cid_f,))
+
+        if docs.empty:
+            st.info("업로드된 문서가 없습니다.")
+        else:
+            for _, doc in docs.iterrows():
+                dc1, dc2, dc3, dc4 = st.columns([4, 1, 1, 1])
+                dc1.markdown(f"**{doc['파일명']}**  \n{doc['병원명']} | {doc['종류']} | {doc['업로드일']}")
+                if dc2.button("🔗 보기", key=f"dv_{doc['id']}"):
+                    st.markdown(f"[📄 Google Drive에서 열기]({doc['url']})")
+                if dc3.button("⬇ 저장", key=f"dd_{doc['id']}"):
+                    fb = drive_download_bytes(doc["fid"])
+                    if fb:
+                        ext = Path(doc["파일명"]).suffix.lower()
+                        mime = "application/pdf" if ext == ".pdf" else "image/jpeg"
+                        st.download_button("⬇", data=fb, file_name=doc["파일명"], mime=mime,
+                                           key=f"ddb_{doc['id']}", use_container_width=True)
+                if dc4.button("🗑", key=f"ddel_{doc['id']}"):
+                    drive_delete(doc["fid"])
+                    execute("DELETE FROM med_contracts WHERE id=?", (int(doc["id"]),))
+                    st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # 메인
 # ══════════════════════════════════════════════════════════════════════════
 init_db()
 
-DEFAULT_MENU   = ["🏠 대시보드", "📦 매입 / 매출 입력", "💰 미수금 현황", "⚙️ 기초 데이터 관리"]
+DEFAULT_MENU   = ["📊 리포트", "📦 영업 관리", "💰 수금 현황", "⚙️ 기초 관리"]
 DEFAULT_LABELS = {k: k for k in DEFAULT_MENU}
 
 if "menu_order" not in st.session_state or "menu_labels" not in st.session_state:
@@ -1594,16 +2388,37 @@ with hc2:
 
 st.markdown("---")
 
-PAGE_MAP = {
-    "🏠 대시보드":          page_dashboard,
-    "📦 매입 / 매출 입력":  page_stock_entry,
-    "💰 미수금 현황":       page_receivables,
-    "⚙️ 기초 데이터 관리": page_master,
-}
+# 대분류 선택
+sector = st.radio(
+    "", ["💄 화장품", "🏥 의료장비"],
+    horizontal=True, key="sector_radio", label_visibility="collapsed"
+)
 
-order = [k for k in order if k in PAGE_MAP]
-nav_tabs = st.tabs([labels[k] for k in order])
-for nav_tab, key in zip(nav_tabs, order):
-    with nav_tab:
-        st.title(labels[key])
-        PAGE_MAP[key]()
+st.markdown("---")
+
+if sector == "💄 화장품":
+    PAGE_MAP = {
+        "📊 리포트":   page_dashboard,
+        "📦 영업 관리": page_stock_entry,
+        "💰 수금 현황": page_receivables,
+        "⚙️ 기초 관리": page_master,
+    }
+    order = [k for k in order if k in PAGE_MAP]
+    nav_tabs = st.tabs([labels[k] for k in order])
+    for nav_tab, key in zip(nav_tabs, order):
+        with nav_tab:
+            st.title(labels[key])
+            PAGE_MAP[key]()
+else:
+    MED_TABS = ["📊 리포트", "📦 영업 관리", "💰 수금 현황", "⚙️ 기초 관리"]
+    MED_PAGE_MAP = {
+        "📊 리포트":   page_med_report,
+        "📦 영업 관리": page_med_sales,
+        "💰 수금 현황": page_med_receivables,
+        "⚙️ 기초 관리": page_med_master,
+    }
+    med_tabs = st.tabs(MED_TABS)
+    for med_tab, key in zip(med_tabs, MED_TABS):
+        with med_tab:
+            st.title(key)
+            MED_PAGE_MAP[key]()
