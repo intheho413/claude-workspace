@@ -268,6 +268,26 @@ def init_db():
     conn.commit()
     conn.execute("UPDATE products SET settlement_price=sale_price WHERE settlement_price=0 AND sale_price>0")
     conn.commit()
+    # ── PostgreSQL SERIAL 시퀀스 복구 (Supabase에서 SERIAL이 동작하지 않는 경우 대비) ──
+    if not USE_LOCAL:
+        for _tbl in ["med_clients","med_products","med_stock_in",
+                     "med_stock_out","med_payments","med_contracts"]:
+            _seq = f"{_tbl}_id_seq"
+            try:
+                conn.execute(f"""
+                    DO $$ BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_sequences WHERE sequencename = '{_seq}') THEN
+                            CREATE SEQUENCE {_seq};
+                        END IF;
+                        ALTER TABLE {_tbl} ALTER COLUMN id SET DEFAULT nextval('{_seq}');
+                        PERFORM setval('{_seq}',
+                            GREATEST(COALESCE((SELECT MAX(id) FROM {_tbl} WHERE id IS NOT NULL), 0), 1));
+                        UPDATE {_tbl} SET id = nextval('{_seq}') WHERE id IS NULL;
+                    END $$;
+                """)
+            except Exception:
+                pass
+        conn.commit()
     conn.close()
 
 def run_sql(query, params=()):
@@ -1763,13 +1783,15 @@ def page_med_sales():
             if not manufacturer or not product_name:
                 st.error("장비사와 장비명을 입력해주세요.")
             else:
-                exists = run_sql("SELECT id FROM med_products WHERE name=? AND manufacturer=?", (product_name, manufacturer))
+                exists = run_sql("SELECT id FROM med_products WHERE name=? AND manufacturer=? AND id IS NOT NULL", (product_name, manufacturer))
                 if exists.empty:
-                    execute("INSERT INTO med_products (name, manufacturer) VALUES (?,?)", (product_name, manufacturer))
+                    _pid2 = _med_next_id("med_products")
+                    execute("INSERT INTO med_products (id,name,manufacturer) VALUES (?,?,?)", (_pid2, product_name, manufacturer))
+                _sin_id = _med_next_id("med_stock_in")
                 execute("""INSERT INTO med_stock_in
-                    (date,manufacturer,product_name,price_type,purchase_price,serial_number,warranty_end,note)
-                    VALUES (?,?,?,?,?,?,?,?)""",
-                    (str(in_date), manufacturer, product_name, price_type, purchase_price,
+                    (id,date,manufacturer,product_name,price_type,purchase_price,serial_number,warranty_end,note)
+                    VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (_sin_id, str(in_date), manufacturer, product_name, price_type, purchase_price,
                      serial, None, note_in))
                 st.success(f"매입 등록 완료 — {manufacturer} {product_name}"); st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1795,16 +1817,17 @@ def page_med_sales():
                 to_del = edited_in[edited_in["삭제"] == True]
                 to_upd = edited_in[edited_in["삭제"] == False]
                 conn = get_conn()
-                for did in to_del["id"].astype(int):
-                    conn.execute("DELETE FROM med_stock_in WHERE id=?", (did,))
+                for did in to_del["id"].dropna():
+                    _did = _safe_id(did)
+                    if _did: conn.execute("DELETE FROM med_stock_in WHERE id=?", (_did,))
                 for _, row in to_upd.iterrows():
-                    orig = df_in[df_in["id"] == row["id"]]
-                    if orig.empty: continue
+                    _rid = _safe_id(row["id"])
+                    if _rid is None: continue
                     conn.execute("""UPDATE med_stock_in SET date=?,manufacturer=?,product_name=?,
                                     price_type=?,purchase_price=?,serial_number=?,note=? WHERE id=?""",
                                  (str(row["날짜"]), str(row["장비사"]), str(row["장비명"]),
                                   str(row["가격유형"]), int(row["매입가"]),
-                                  str(row["시리얼번호"]), str(row["비고"]), int(row["id"])))
+                                  str(row["시리얼번호"]), str(row["비고"]), _rid))
                 conn.commit(); conn.close()
                 st.success(f"저장 완료 (삭제 {len(to_del)}건)"); st.rerun()
 
@@ -1886,12 +1909,13 @@ def page_med_sales():
                                 execute("INSERT INTO med_products (id, name, manufacturer) VALUES (?,?,?)", (_pid, pname, pmfr))
                                 prod_id = _pid
 
+                        _sout_id = _med_next_id("med_stock_out")
                         execute("""INSERT INTO med_stock_out
-                            (date,client_id,product_id,product_name,manufacturer,serial_number,
+                            (id,date,client_id,product_id,product_name,manufacturer,serial_number,
                              is_purchased,payment_method,sale_price,commission,
                              supply_amount,vat_amount,total_amount,drive_file_id,drive_file_name,note)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                            (str(out_date), client_id, prod_id, pname, pmfr, serial,
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (_sout_id, str(out_date), client_id, prod_id, pname, pmfr, serial,
                              is_p, paym, sp, comm, supply, vat, sp, None, None, note))
 
                     st.success(f"납품 등록 완료 — {hosp} {len(valid)}건"); st.rerun()
@@ -1926,18 +1950,21 @@ def page_med_sales():
                 to_upd = edited_out[edited_out["삭제"] == False]
                 conn = get_conn()
                 for idx in to_del.index:
-                    did = int(df_out.loc[idx, "id"])
-                    fid = df_out.loc[idx, "drive_file_id"]
-                    if fid: drive_delete(fid)
-                    conn.execute("DELETE FROM med_stock_out WHERE id=?", (did,))
+                    _did = _safe_id(df_out.loc[idx, "id"])
+                    if _did is None: continue
+                    _fid = df_out.loc[idx, "drive_file_id"]
+                    if _fid: drive_delete(_fid)
+                    conn.execute("DELETE FROM med_stock_out WHERE id=?", (_did,))
                 for _, row in to_upd.iterrows():
+                    _rid = _safe_id(row["id"])
+                    if _rid is None: continue
                     conn.execute("""UPDATE med_stock_out SET date=?,product_name=?,manufacturer=?,
                                     is_purchased=?,payment_method=?,sale_price=?,commission=?,
                                     total_amount=?,note=? WHERE id=?""",
                                  (str(row["날짜"]), str(row["장비명"]), str(row["장비사"]),
                                   str(row["매입여부"]), str(row["결제방식"]),
                                   int(row["납품가"]), int(row["수수료"]), int(row["합계"]),
-                                  str(row.get("비고", "")), int(row["id"])))
+                                  str(row.get("비고", "")), _rid))
                 conn.commit(); conn.close()
                 st.success(f"저장 완료 (삭제 {len(to_del)}건)"); st.rerun()
 
@@ -1991,7 +2018,7 @@ def page_med_receivables():
         else:
             pay_client = st.selectbox("병원 선택", clients_pay["hospital_name"].tolist(), key="med_pay_client")
             _cid_row = clients_pay[clients_pay["hospital_name"] == pay_client]
-            cid = int(_cid_row.iloc[0]["id"]) if not _cid_row.empty and _cid_row.iloc[0]["id"] is not None else None
+            cid = _safe_id(_cid_row.iloc[0]["id"]) if not _cid_row.empty else None
             if cid is None:
                 st.error("거래처 ID를 찾을 수 없습니다."); st.stop()
             row = recv[recv["병원명"] == pay_client]
@@ -2009,8 +2036,9 @@ def page_med_receivables():
                 pay_method = pc3.radio("결제방식", ["현금", "카드", "리스"], horizontal=True)
                 pay_note   = st.text_input("메모")
                 if st.form_submit_button("✅ 수금 등록", use_container_width=True):
-                    execute("INSERT INTO med_payments (date,client_id,amount,payment_method,note) VALUES (?,?,?,?,?)",
-                            (str(pay_date), cid, pay_amount, pay_method, pay_note))
+                    _mp_id = _med_next_id("med_payments")
+                    execute("INSERT INTO med_payments (id,date,client_id,amount,payment_method,note) VALUES (?,?,?,?,?,?)",
+                            (_mp_id, str(pay_date), cid, pay_amount, pay_method, pay_note))
                     st.success(f"수금 완료 — {pay_client} {fmt(pay_amount)}"); st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
@@ -2020,7 +2048,7 @@ def page_med_receivables():
             st.info("거래처가 없습니다.")
         else:
             sel = st.selectbox("병원 선택", clients_list["hospital_name"].tolist(), key="med_ledger_sel")
-            cid2 = int(clients_list[clients_list["hospital_name"] == sel].iloc[0]["id"])
+            cid2 = _safe_id(clients_list[clients_list["hospital_name"] == sel].iloc[0]["id"])
             detail = run_sql("""
                 SELECT date as 날짜, '납품' as 구분, total_amount as 납품액, 0 as 수금액
                 FROM med_stock_out WHERE client_id=?
@@ -2056,13 +2084,15 @@ def page_med_receivables():
                 if pa.button("💾 수정 저장", type="primary", use_container_width=True, key="med_pay_save"):
                     conn = get_conn(); changed = 0
                     for i, row in edited_pay.iterrows():
+                        _rid = _safe_id(row["id"])
+                        if _rid is None: continue
                         orig = pay_df.iloc[i]
                         if (str(row["날짜"]) != str(orig["날짜"]) or
                                 int(row["수금액"]) != int(orig["수금액"]) or
                                 str(row["메모"]) != str(orig["메모"])):
                             conn.execute("UPDATE med_payments SET date=?,amount=?,payment_method=?,note=? WHERE id=?",
                                         (str(row["날짜"]), int(row["수금액"]), str(row["결제방식"]),
-                                         str(row["메모"]), int(row["id"])))
+                                         str(row["메모"]), _rid))
                             changed += 1
                     conn.commit(); conn.close()
                     if changed: st.success(f"{changed}건 수정 완료!"); st.rerun()
@@ -2072,9 +2102,10 @@ def page_med_receivables():
                 del_sels = st.multiselect("삭제할 수금 내역", del_opts, key="med_pay_del_sel")
                 if del_sels and pb.button(f"🗑 {len(del_sels)}건 삭제", type="primary",
                                           use_container_width=True, key="med_pay_del_btn"):
-                    del_ids = [int(pay_df.iloc[del_opts.index(s)]["id"]) for s in del_sels]
+                    del_ids = [_safe_id(pay_df.iloc[del_opts.index(s)]["id"]) for s in del_sels]
                     conn = get_conn()
-                    for pid in del_ids: conn.execute("DELETE FROM med_payments WHERE id=?", (pid,))
+                    for pid in del_ids:
+                        if pid: conn.execute("DELETE FROM med_payments WHERE id=?", (pid,))
                     conn.commit(); conn.close()
                     st.success(f"{len(del_ids)}건 삭제 완료!"); st.rerun()
 
@@ -2095,7 +2126,8 @@ def page_med_master():
                 spec  = mc3.text_input("규격")
                 if st.form_submit_button("등록", use_container_width=True):
                     if pname and mfr:
-                        execute("INSERT INTO med_products (name,manufacturer,spec) VALUES (?,?,?)", (pname, mfr, spec))
+                        _mpid = _med_next_id("med_products")
+                        execute("INSERT INTO med_products (id,name,manufacturer,spec) VALUES (?,?,?,?)", (_mpid, pname, mfr, spec))
                         st.success(f"'{pname}' 등록 완료"); st.rerun()
         prods = run_sql("SELECT id, name as 장비명, manufacturer as 장비사, COALESCE(spec,'') as 규격 FROM med_products ORDER BY name")
         if not prods.empty:
@@ -2110,14 +2142,17 @@ def page_med_master():
             if ca.button("💾 저장", type="primary", use_container_width=True, key="med_prod_save"):
                 conn = get_conn()
                 for i, row in edited_p.iterrows():
+                    _rid = _safe_id(row["id"])
+                    if _rid is None: continue
                     conn.execute("UPDATE med_products SET name=?,manufacturer=?,spec=? WHERE id=?",
-                                 (str(row["장비명"]), str(row["장비사"]), str(row["규격"]), int(row["id"])))
+                                 (str(row["장비명"]), str(row["장비사"]), str(row["규격"]), _rid))
                 conn.commit(); conn.close(); st.success("저장 완료!"); st.rerun()
             del_p = st.multiselect("삭제할 장비", prods["장비명"].tolist(), key="med_prod_del")
             if del_p and cb.button(f"🗑 {len(del_p)}개 삭제", type="primary", use_container_width=True, key="med_prod_del_btn"):
                 conn = get_conn()
                 for name in del_p:
-                    conn.execute("DELETE FROM med_products WHERE id=?", (int(prods[prods["장비명"]==name].iloc[0]["id"]),))
+                    _rid = _safe_id(prods[prods["장비명"]==name].iloc[0]["id"])
+                    if _rid: conn.execute("DELETE FROM med_products WHERE id=?", (_rid,))
                 conn.commit(); conn.close(); st.success(f"{len(del_p)}개 삭제 완료"); st.rerun()
 
     # ── 거래처 관리 ──
@@ -2134,8 +2169,9 @@ def page_med_master():
                 credit  = st.number_input("여신한도", min_value=0, step=1000000)
                 if st.form_submit_button("등록", use_container_width=True):
                     if hname:
-                        execute("INSERT INTO med_clients (hospital_name,ceo_name,contact_person,phone,address,credit_limit) VALUES (?,?,?,?,?,?)",
-                                (hname, ceo, contact, phone, address, credit))
+                        _mcid = _med_next_id("med_clients")
+                        execute("INSERT INTO med_clients (id,hospital_name,ceo_name,contact_person,phone,address,credit_limit) VALUES (?,?,?,?,?,?,?)",
+                                (_mcid, hname, ceo, contact, phone, address, credit))
                         st.success(f"'{hname}' 등록 완료"); st.rerun()
         clients_df = run_sql("""SELECT id, hospital_name as 병원명, COALESCE(ceo_name,'') as 대표자,
                                        COALESCE(contact_person,'') as 담당자, COALESCE(phone,'') as 연락처,
@@ -2156,16 +2192,19 @@ def page_med_master():
             if da.button("💾 저장", type="primary", use_container_width=True, key="med_client_save"):
                 conn = get_conn()
                 for i, row in edited_cl.iterrows():
+                    _rid = _safe_id(row["id"])
+                    if _rid is None: continue
                     conn.execute("""UPDATE med_clients SET hospital_name=?,ceo_name=?,contact_person=?,
                                     phone=?,address=?,credit_limit=? WHERE id=?""",
                                  (str(row["병원명"]), str(row["대표자"]), str(row["담당자"]),
-                                  str(row["연락처"]), str(row["주소"]), int(row["여신한도"]), int(row["id"])))
+                                  str(row["연락처"]), str(row["주소"]), int(row["여신한도"]), _rid))
                 conn.commit(); conn.close(); st.success("저장 완료!"); st.rerun()
             del_cl = st.multiselect("삭제할 거래처", clients_df["병원명"].tolist(), key="med_client_del")
             if del_cl and db.button(f"🗑 {len(del_cl)}개 삭제", type="primary", use_container_width=True, key="med_client_del_btn"):
                 conn = get_conn()
                 for name in del_cl:
-                    conn.execute("DELETE FROM med_clients WHERE id=?", (int(clients_df[clients_df["병원명"]==name].iloc[0]["id"]),))
+                    _rid = _safe_id(clients_df[clients_df["병원명"]==name].iloc[0]["id"])
+                    if _rid: conn.execute("DELETE FROM med_clients WHERE id=?", (_rid,))
                 conn.commit(); conn.close(); st.success(f"{len(del_cl)}개 삭제 완료"); st.rerun()
 
     # ── 계약서 발급 ──
@@ -2261,7 +2300,7 @@ def page_med_master():
         doc_hosp_mode = dc1.radio("병원", ["선택", "직접입력"], horizontal=True, key="doc_hosp_mode")
         if doc_hosp_mode == "선택" and not clients_doc.empty:
             doc_hosp = dc1.selectbox("병원명", clients_doc["hospital_name"].tolist(), key="doc_hosp_sel", label_visibility="collapsed")
-            doc_cid  = int(clients_doc[clients_doc["hospital_name"] == doc_hosp].iloc[0]["id"])
+            doc_cid  = _safe_id(clients_doc[clients_doc["hospital_name"] == doc_hosp].iloc[0]["id"])
         else:
             doc_hosp = dc1.text_input("병원명 직접입력", key="doc_hosp_txt", label_visibility="collapsed")
             doc_cid  = None
@@ -2284,9 +2323,10 @@ def page_med_master():
                 fname = f"{doc_hosp}_{doc_type}_{date.today()}{Path(doc_file.name).suffix}"
                 fid, furl = drive_upload(doc_file.read(), fname, doc_file.type)
                 if fid:
-                    execute("""INSERT INTO med_contracts (client_id,file_name,file_type,drive_file_id,drive_file_url,uploaded_at)
-                               VALUES (?,?,?,?,?,?)""",
-                            (doc_cid, fname, doc_type, fid, furl, str(date.today())))
+                    _mcon_id = _med_next_id("med_contracts")
+                    execute("""INSERT INTO med_contracts (id,client_id,file_name,file_type,drive_file_id,drive_file_url,uploaded_at)
+                               VALUES (?,?,?,?,?,?,?)""",
+                            (_mcon_id, doc_cid, fname, doc_type, fid, furl, str(date.today())))
                     st.success(f"업로드 완료 — {fname}"); st.rerun()
 
         st.divider()
@@ -2300,8 +2340,8 @@ def page_med_master():
         if flt == "전체":
             docs = run_sql(docs_q + " ORDER BY d.uploaded_at DESC")
         else:
-            cid_f = int(clients_doc[clients_doc["hospital_name"] == flt].iloc[0]["id"])
-            docs  = run_sql(docs_q + " WHERE d.client_id=? ORDER BY d.uploaded_at DESC", (cid_f,))
+            cid_f = _safe_id(clients_doc[clients_doc["hospital_name"] == flt].iloc[0]["id"])
+            docs  = run_sql(docs_q + " WHERE d.client_id=? ORDER BY d.uploaded_at DESC", (cid_f,)) if cid_f else run_sql(docs_q + " ORDER BY d.uploaded_at DESC")
 
         if docs.empty:
             st.info("업로드된 문서가 없습니다.")
