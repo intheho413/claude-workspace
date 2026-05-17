@@ -1887,15 +1887,21 @@ def page_med_sales():
                     st.error("거래처 등록에 실패했습니다. 다시 시도해주세요.")
                 else:
 
+                    def _n(v, d=0):
+                        try: return int(float(v)) if pd.notna(v) else d
+                        except: return d
+                    def _s(v, d=""):
+                        return d if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v).strip()
+
                     for _, r in valid.iterrows():
-                        pname = str(r.get("장비명","")).strip()
-                        pmfr  = str(r.get("장비사","")).strip()
-                        sp    = int(r.get("납품가", 0) or 0)
-                        comm  = int(r.get("수수료", 0) or 0)
-                        serial = str(r.get("시리얼번호","") or "").strip()
-                        is_p  = str(r.get("매입여부","매입") or "매입")
-                        paym  = str(r.get("결제방식","현금") or "현금")
-                        note  = str(r.get("비고","") or "").strip()
+                        pname = _s(r.get("장비명"))
+                        pmfr  = _s(r.get("장비사"))
+                        sp    = _n(r.get("납품가"))
+                        comm  = _n(r.get("수수료"))
+                        serial = _s(r.get("시리얼번호"))
+                        is_p  = _s(r.get("매입여부"), "매입") or "매입"
+                        paym  = _s(r.get("결제방식"), "현금") or "현금"
+                        note  = _s(r.get("비고"))
                         supply = round(sp / 1.1) if sp > 0 else 0
                         vat    = sp - supply
 
@@ -2049,6 +2055,9 @@ def page_med_receivables():
         else:
             sel = st.selectbox("병원 선택", clients_list["hospital_name"].tolist(), key="med_ledger_sel")
             cid2 = _safe_id(clients_list[clients_list["hospital_name"] == sel].iloc[0]["id"])
+            if cid2 is None:
+                st.warning("거래처 ID가 없습니다. 기초관리에서 확인해주세요.")
+                st.stop()
             detail = run_sql("""
                 SELECT date as 날짜, '납품' as 구분, total_amount as 납품액, 0 as 수금액
                 FROM med_stock_out WHERE client_id=?
