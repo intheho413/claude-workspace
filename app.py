@@ -361,7 +361,8 @@ def drive_upload(file_bytes, filename, mime_type):
     if not base:
         st.error("Supabase Storage 설정이 없습니다. secrets.toml을 확인하세요.")
         return None, None
-    path = f"{date.today().isoformat()}_{filename}"
+    from datetime import date as _date
+    path = f"{_date.today().isoformat()}_{filename}"
     try:
         r = _req.post(
             f"{base}/object/{_STORAGE_BUCKET}/{path}",
