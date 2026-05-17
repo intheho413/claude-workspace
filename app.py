@@ -1838,15 +1838,12 @@ def page_med_sales():
                     client_id = int(_m.iloc[0]["id"])
                 else:
                     try:
-                        _conn = get_conn()
-                        _cur  = _conn.execute(
-                            "INSERT INTO med_clients (hospital_name) VALUES (?) RETURNING id",
+                        execute("INSERT INTO med_clients (hospital_name) VALUES (?)", (hosp,))
+                        _new = run_sql(
+                            "SELECT id FROM med_clients WHERE hospital_name=? ORDER BY id DESC LIMIT 1",
                             (hosp,)
                         )
-                        _row  = _cur.fetchone()
-                        _conn.commit()
-                        _conn.close()
-                        client_id = int(_row["id"]) if _row and _row["id"] is not None else None
+                        client_id = int(_new.iloc[0]["id"]) if not _new.empty else None
                     except Exception as _e:
                         client_id = None
                         st.error(f"거래처 등록 오류: {_e}")
