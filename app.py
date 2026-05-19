@@ -2,6 +2,56 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+
+# ── Deep Space 차트 테마 ──────────────────────────────────────────
+_DS = dict(
+    BG      = "rgba(0,0,0,0)",        # Streamlit 카드 배경과 투명하게 맞춤
+    CARD    = "#131D2E",
+    GRID    = "rgba(255,255,255,0.06)",
+    TEXT    = "#E2E8F0",
+    TEXT_DIM= "rgba(255,255,255,0.40)",
+    ACCENT  = ["#3A82FF","#22D3EE","#22C55E","#F59E0B","#EF4444"],
+    FF      = "Inter, Pretendard, -apple-system, sans-serif",
+)
+_EASE, _DUR = "cubic-in-out", 1100   # 보간 easing / ms
+
+def _ds_layout(**kw):
+    """Deep Space 공통 레이아웃 — 키워드로 덮어쓰기 가능"""
+    d = dict(
+        paper_bgcolor = _DS["BG"],
+        plot_bgcolor  = _DS["BG"],
+        font          = dict(family=_DS["FF"], color=_DS["TEXT"]),
+        xaxis         = dict(showgrid=False, zeroline=False,
+                             tickfont=dict(color=_DS["TEXT_DIM"]), linecolor=_DS["GRID"]),
+        yaxis         = dict(showgrid=True, gridcolor=_DS["GRID"], zeroline=False,
+                             tickfont=dict(color=_DS["TEXT_DIM"]), linecolor=_DS["GRID"]),
+        legend        = dict(bgcolor="rgba(0,0,0,0)", font=dict(color=_DS["TEXT_DIM"]),
+                             orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hoverlabel    = dict(bgcolor="#1E2D45", bordercolor=_DS["ACCENT"][0],
+                             font_color=_DS["TEXT"], font_size=13),
+        hovermode     = "x unified",
+        margin        = dict(l=0, r=0, t=10, b=0),
+    )
+    d.update(kw)
+    return d
+
+def _ds_play(dur=_DUR, ease=_EASE):
+    """애니메이션 Play 버튼 — 프레임 2개 + Plotly 내부 보간"""
+    return [dict(
+        type="buttons", showactive=False,
+        y=-0.18, x=0.5, xanchor="center",
+        bgcolor="#1E2D45", bordercolor=_DS["ACCENT"][0],
+        font=dict(color=_DS["TEXT"], size=12),
+        buttons=[dict(
+            label="▶  Play",
+            method="animate",
+            args=[None, dict(
+                frame=dict(duration=dur, redraw=True),
+                transition=dict(duration=dur, easing=ease),
+                fromcurrent=False, mode="immediate",
+            )]
+        )]
+    )]
 from datetime import date, datetime, timedelta
 import psycopg2
 import psycopg2.extras
@@ -599,16 +649,42 @@ def page_dashboard():
             FROM stock_out WHERE type='출고' GROUP BY 월 ORDER BY 월
         """)
         if not monthly.empty:
-            fig = go.Figure()
-            fig.add_trace(go.Bar(x=monthly["월"], y=monthly["매출"], name="매출", marker_color="#6366f1"))
-            fig.add_trace(go.Scatter(x=monthly["월"], y=monthly["마진"], name="마진", line=dict(color="#34d399", width=2), yaxis="y2"))
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                              yaxis2=dict(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)"),
-                              xaxis=dict(gridcolor="rgba(255,255,255,0.05)", tickfont=dict(color="rgba(255,255,255,0.4)")),
-                              yaxis=dict(gridcolor="rgba(255,255,255,0.05)", tickfont=dict(color="rgba(255,255,255,0.4)")),
-                              legend=dict(font=dict(color="rgba(255,255,255,0.6)")),
-                              margin=dict(l=0,r=0,t=10,b=0))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            _mx = monthly["월"].tolist()
+            _my = monthly["매출"].tolist()
+            _mm = monthly["마진"].tolist()
+            fig = go.Figure(
+                data=[
+                    go.Bar(x=_mx, y=[0]*len(_mx), name="매출",
+                           marker=dict(color=_DS["ACCENT"][0], opacity=0.9),
+                           hovertemplate="<b>%{x}</b><br>매출: %{y:,.0f}원<extra></extra>"),
+                    go.Scatter(x=_mx, y=[0]*len(_mx), name="마진",
+                               mode="lines+markers",
+                               line=dict(color=_DS["ACCENT"][1], width=2.5),
+                               marker=dict(size=6, color=_DS["ACCENT"][1]),
+                               yaxis="y2",
+                               hovertemplate="마진: %{y:,.0f}원<extra></extra>"),
+                ],
+                frames=[
+                    go.Frame(name="0", data=[
+                        go.Bar(x=_mx, y=[0]*len(_mx), marker=dict(color=_DS["ACCENT"][0], opacity=0.9)),
+                        go.Scatter(x=_mx, y=[0]*len(_mx), yaxis="y2",
+                                   line=dict(color=_DS["ACCENT"][1], width=2.5)),
+                    ]),
+                    go.Frame(name="1", data=[
+                        go.Bar(x=_mx, y=_my, marker=dict(color=_DS["ACCENT"][0], opacity=0.9)),
+                        go.Scatter(x=_mx, y=_mm, mode="lines+markers", yaxis="y2",
+                                   line=dict(color=_DS["ACCENT"][1], width=2.5),
+                                   marker=dict(size=6, color=_DS["ACCENT"][1])),
+                    ]),
+                ],
+            )
+            fig.update_layout(**_ds_layout(
+                yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                            tickfont=dict(color=_DS["TEXT_DIM"])),
+                updatemenus=_ds_play(),
+                margin=dict(l=0,r=0,t=10,b=50),
+            ))
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, theme=None)
         else:
             st.info("출고 데이터가 없습니다.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -620,16 +696,42 @@ def page_dashboard():
             FROM stock_out WHERE type='출고' GROUP BY 연도 ORDER BY 연도
         """)
         if not yearly.empty:
-            fig2 = go.Figure()
-            fig2.add_trace(go.Bar(x=yearly["연도"], y=yearly["매출"], name="매출", marker_color="#818cf8"))
-            fig2.add_trace(go.Scatter(x=yearly["연도"], y=yearly["마진"], name="마진", line=dict(color="#34d399", width=2), yaxis="y2"))
-            fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                               yaxis2=dict(overlaying="y", side="right", gridcolor="rgba(0,0,0,0)"),
-                               xaxis=dict(gridcolor="rgba(255,255,255,0.05)", tickfont=dict(color="rgba(255,255,255,0.4)")),
-                               yaxis=dict(gridcolor="rgba(255,255,255,0.05)", tickfont=dict(color="rgba(255,255,255,0.4)")),
-                               legend=dict(font=dict(color="rgba(255,255,255,0.6)")),
-                               margin=dict(l=0,r=0,t=10,b=0))
-            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+            _yx = yearly["연도"].tolist()
+            _yy = yearly["매출"].tolist()
+            _ym = yearly["마진"].tolist()
+            fig2 = go.Figure(
+                data=[
+                    go.Bar(x=_yx, y=[0]*len(_yx), name="매출",
+                           marker=dict(color=_DS["ACCENT"][2], opacity=0.9),
+                           hovertemplate="<b>%{x}</b><br>매출: %{y:,.0f}원<extra></extra>"),
+                    go.Scatter(x=_yx, y=[0]*len(_yx), name="마진",
+                               mode="lines+markers",
+                               line=dict(color=_DS["ACCENT"][3], width=2.5),
+                               marker=dict(size=7, color=_DS["ACCENT"][3]),
+                               yaxis="y2",
+                               hovertemplate="마진: %{y:,.0f}원<extra></extra>"),
+                ],
+                frames=[
+                    go.Frame(name="0", data=[
+                        go.Bar(x=_yx, y=[0]*len(_yx), marker=dict(color=_DS["ACCENT"][2], opacity=0.9)),
+                        go.Scatter(x=_yx, y=[0]*len(_yx), yaxis="y2",
+                                   line=dict(color=_DS["ACCENT"][3], width=2.5)),
+                    ]),
+                    go.Frame(name="1", data=[
+                        go.Bar(x=_yx, y=_yy, marker=dict(color=_DS["ACCENT"][2], opacity=0.9)),
+                        go.Scatter(x=_yx, y=_ym, mode="lines+markers", yaxis="y2",
+                                   line=dict(color=_DS["ACCENT"][3], width=2.5),
+                                   marker=dict(size=7, color=_DS["ACCENT"][3])),
+                    ]),
+                ],
+            )
+            fig2.update_layout(**_ds_layout(
+                yaxis2=dict(overlaying="y", side="right", showgrid=False,
+                            tickfont=dict(color=_DS["TEXT_DIM"])),
+                updatemenus=_ds_play(),
+                margin=dict(l=0,r=0,t=10,b=50),
+            ))
+            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False}, theme=None)
         else:
             st.info("출고 데이터가 없습니다.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1442,11 +1544,29 @@ def page_receivables():
         if pie_data.empty:
             st.info("미수금 데이터 없음")
         else:
-            fig = px.pie(pie_data, values="미수금", names="거래처",
-                         title="거래처별 미수금 비중", template="plotly_dark",
-                         color_discrete_sequence=px.colors.sequential.Plasma_r)
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            fig = go.Figure(go.Pie(
+                labels=pie_data["거래처"].tolist(),
+                values=pie_data["미수금"].tolist(),
+                hole=0.55,
+                marker=dict(colors=_DS["ACCENT"], line=dict(color="rgba(0,0,0,0.3)", width=2)),
+                textinfo="label+percent",
+                textfont=dict(size=12, color=_DS["TEXT"]),
+                pull=[0.04] + [0]*(len(pie_data)-1),
+                direction="clockwise", sort=True,
+                hovertemplate="<b>%{label}</b><br>%{value:,.0f}원<br>%{percent}<extra></extra>",
+            ))
+            fig.update_layout(
+                paper_bgcolor=_DS["BG"],
+                font=dict(family=_DS["FF"], color=_DS["TEXT"]),
+                showlegend=True,
+                legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=_DS["TEXT_DIM"])),
+                margin=dict(l=0,r=0,t=30,b=0),
+                hoverlabel=dict(bgcolor="#1E2D45", bordercolor=_DS["ACCENT"][0],
+                                font_color=_DS["TEXT"], font_size=13),
+                annotations=[dict(text="<b>미수금</b>", x=0.5, y=0.5,
+                                  font=dict(size=13, color=_DS["TEXT_DIM"]), showarrow=False)],
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, theme=None)
 
 # ══════════════════════════════════════════════════════════════════════════
 # 기초 데이터 관리
@@ -1684,20 +1804,52 @@ def page_med_report():
     with gc1:
         monthly = run_sql("SELECT substr(date,1,7) as 월, SUM(total_amount) as 납품액 FROM med_stock_out GROUP BY 월 ORDER BY 월")
         if not monthly.empty:
-            fig = px.bar(monthly, x="월", y="납품액", title="월별 납품액 추이", template="plotly_dark",
-                         color_discrete_sequence=["#0d9488"])
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                              margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            _mx2 = monthly["월"].tolist()
+            _my2 = monthly["납품액"].tolist()
+            fig = go.Figure(
+                data=[go.Bar(x=_mx2, y=[0]*len(_mx2), name="납품액",
+                             marker=dict(color=_DS["ACCENT"][0], opacity=0.9),
+                             hovertemplate="<b>%{x}</b><br>납품액: %{y:,.0f}원<extra></extra>")],
+                frames=[
+                    go.Frame(name="0", data=[go.Bar(x=_mx2, y=[0]*len(_mx2),
+                             marker=dict(color=_DS["ACCENT"][0], opacity=0.9))]),
+                    go.Frame(name="1", data=[go.Bar(x=_mx2, y=_my2,
+                             marker=dict(color=_DS["ACCENT"][0], opacity=0.9))]),
+                ],
+            )
+            fig.update_layout(**_ds_layout(
+                updatemenus=_ds_play(),
+                margin=dict(l=0,r=0,t=10,b=50),
+            ))
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False}, theme=None)
         else:
             st.info("납품 데이터가 없습니다.")
     with gc2:
         pm = run_sql("SELECT payment_method as 결제방식, SUM(total_amount) as 금액 FROM med_stock_out GROUP BY payment_method")
         if not pm.empty:
-            fig2 = px.pie(pm, values="금액", names="결제방식", title="결제방식별 비중",
-                          template="plotly_dark", color_discrete_sequence=px.colors.sequential.Teal)
-            fig2.update_layout(paper_bgcolor="rgba(0,0,0,0)", margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
+            fig2 = go.Figure(go.Pie(
+                labels=pm["결제방식"].tolist(),
+                values=pm["금액"].tolist(),
+                hole=0.55,
+                marker=dict(colors=_DS["ACCENT"], line=dict(color="rgba(0,0,0,0.3)", width=2)),
+                textinfo="label+percent",
+                textfont=dict(size=12, color=_DS["TEXT"]),
+                pull=[0.04] + [0]*(len(pm)-1),
+                direction="clockwise", sort=True,
+                hovertemplate="<b>%{label}</b><br>%{value:,.0f}원<br>%{percent}<extra></extra>",
+            ))
+            fig2.update_layout(
+                paper_bgcolor=_DS["BG"],
+                font=dict(family=_DS["FF"], color=_DS["TEXT"]),
+                showlegend=True,
+                legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=_DS["TEXT_DIM"])),
+                margin=dict(l=0,r=0,t=10,b=0),
+                hoverlabel=dict(bgcolor="#1E2D45", bordercolor=_DS["ACCENT"][0],
+                                font_color=_DS["TEXT"], font_size=13),
+                annotations=[dict(text="<b>결제</b>", x=0.5, y=0.5,
+                                  font=dict(size=13, color=_DS["TEXT_DIM"]), showarrow=False)],
+            )
+            st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False}, theme=None)
 
     st.subheader("병원별 납품 현황")
     hosp = run_sql("""
