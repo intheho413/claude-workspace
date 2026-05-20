@@ -1,0 +1,3125 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MSO 통합 관리 시스템</title>
+<link rel="icon" type="image/png" href="favicon.png?v=1">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.50.0/build/docxtemplater.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx-preview@0.3.5/dist/docx-preview.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & Base ── */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:'Inter',sans-serif;color:#e2e8f0;font-size:14px}
+body{
+  background:
+    radial-gradient(900px circle at 12% -5%, rgba(96,165,250,.14), transparent 45%),
+    radial-gradient(1000px circle at 100% 8%, rgba(167,139,250,.12), transparent 42%),
+    radial-gradient(900px circle at 85% 110%, rgba(34,211,238,.10), transparent 45%),
+    #070b14;
+  background-attachment:fixed;
+}
+
+/* ── Layout (상단 네비) ── */
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.content{flex:1;overflow-y:auto;padding:24px 40px}
+.page-inner{max-width:1400px;margin:0 auto}
+
+/* ── 상단 네비바 (글래스) ── */
+.topnav{background:rgba(13,17,27,0.55);border-bottom:1px solid rgba(255,255,255,0.08);
+        flex-shrink:0;display:flex;align-items:center;gap:0;
+        padding:0 20px;height:58px;position:sticky;top:0;z-index:100;
+        backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+        box-shadow:0 4px 24px rgba(0,0,0,0.25),inset 0 -1px 0 rgba(255,255,255,0.04)}
+.nav-brand{display:flex;flex-direction:column;justify-content:center;margin-right:22px;min-width:0}
+.nav-appname{font-size:14px;font-weight:700;color:#fff;letter-spacing:-.3px;white-space:nowrap}
+.nav-caption{font-size:10px;color:#475569;margin-top:1px}
+.nav-sep{width:1px;height:28px;background:rgba(255,255,255,0.08);margin:0 16px;flex-shrink:0}
+.nav-cats{display:flex;gap:4px}
+.cat-btn{padding:6px 14px;border-radius:20px;border:1px solid rgba(255,255,255,0.12);
+         background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);font-size:12px;font-weight:600;
+         cursor:pointer;transition:all .18s;font-family:'Inter',sans-serif;white-space:nowrap;
+         backdrop-filter:blur(6px)}
+.cat-btn:hover{color:rgba(255,255,255,0.75);border-color:rgba(255,255,255,0.2)}
+.cat-btn.active{background:linear-gradient(135deg,rgba(96,165,250,0.28),rgba(167,139,250,0.22));
+                border-color:rgba(120,170,255,0.55);color:#bfdbfe;
+                box-shadow:0 0 18px rgba(96,165,250,0.25),inset 0 1px 0 rgba(255,255,255,0.2)}
+.nav-menu{display:flex;align-items:center;gap:0;height:100%}
+.nav-item{display:flex;align-items:center;height:100%;padding:0 15px;
+          font-size:13px;font-weight:500;color:rgba(255,255,255,0.45);
+          cursor:pointer;transition:all .18s;white-space:nowrap;
+          border-bottom:2px solid transparent;box-sizing:border-box}
+.nav-item:hover{color:rgba(255,255,255,0.85);background:rgba(255,255,255,0.05)}
+.nav-item.active{color:#93c5fd;border-bottom-color:#60a5fa;font-weight:600;
+                 text-shadow:0 0 16px rgba(96,165,250,0.45)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:6px}
+.nav-icon-btn{width:34px;height:34px;border-radius:10px;border:1px solid rgba(255,255,255,0.1);
+              background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.55);font-size:16px;
+              cursor:pointer;display:flex;align-items:center;justify-content:center;
+              transition:all .18s;font-family:'Inter',sans-serif;backdrop-filter:blur(6px)}
+.nav-icon-btn:hover{background:rgba(255,255,255,0.1);color:#fff;
+                    border-color:rgba(120,170,255,0.4);box-shadow:0 0 16px rgba(96,165,250,0.2)}
+
+/* ── Settings Drawer ── */
+.settings-overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.5);
+                  opacity:0;pointer-events:none;transition:opacity .25s}
+.settings-overlay.open{opacity:1;pointer-events:auto}
+.settings-panel{position:fixed;top:0;right:0;bottom:0;width:300px;z-index:201;
+                background:rgba(13,17,27,0.85);border-left:1px solid rgba(255,255,255,0.1);
+                backdrop-filter:blur(24px) saturate(140%);-webkit-backdrop-filter:blur(24px) saturate(140%);
+                box-shadow:-20px 0 60px rgba(0,0,0,0.5);
+                display:flex;flex-direction:column;
+                transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1)}
+.settings-panel.open{transform:translateX(0)}
+.settings-hd{display:flex;align-items:center;justify-content:space-between;
+             padding:16px 20px;border-bottom:1px solid rgba(255,255,255,0.07)}
+.settings-ttl{font-size:14px;font-weight:700;color:#fff}
+.settings-x{width:28px;height:28px;border-radius:6px;border:none;
+            background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);
+            font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.settings-body{flex:1;overflow-y:auto;padding:18px 20px}
+.s-sec{margin-bottom:22px}
+.s-sec-ttl{font-size:10px;font-weight:700;color:rgba(255,255,255,0.3);
+           letter-spacing:.8px;text-transform:uppercase;margin-bottom:10px}
+.s-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;gap:8px}
+.s-lbl{font-size:12px;color:rgba(255,255,255,0.65);white-space:nowrap;min-width:60px}
+.s-inp{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
+       border-radius:6px;padding:5px 9px;color:#e2e8f0;font-size:12px;
+       font-family:'Inter',sans-serif;outline:none;flex:1;min-width:0}
+.s-inp:focus{border-color:#3A82FF}
+.tog-wrap{display:flex;gap:5px}
+.tog-btn{padding:5px 11px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);
+         background:transparent;color:rgba(255,255,255,0.4);font-size:12px;font-weight:600;
+         cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}
+.tog-btn.active{background:rgba(58,130,255,0.2);border-color:#3A82FF;color:#3A82FF}
+.s-apply{margin-top:6px;padding:8px 0;border-radius:8px;border:none;width:100%;
+         background:#3A82FF;color:#fff;font-size:13px;font-weight:600;
+         cursor:pointer;font-family:'Inter',sans-serif;transition:background .15s}
+.s-apply:hover{background:#2563eb}
+
+/* ── Light Mode (글래스) ── */
+html.light,html.light body{color:#1e293b}
+html.light body{background:
+  radial-gradient(900px circle at 10% -5%,rgba(96,165,250,.18),transparent 45%),
+  radial-gradient(1000px circle at 100% 5%,rgba(167,139,250,.15),transparent 42%),
+  radial-gradient(900px circle at 90% 110%,rgba(34,211,238,.12),transparent 45%),
+  #eef2f8}
+html.light .topnav{background:rgba(255,255,255,0.6);border-bottom-color:rgba(0,0,0,0.07);
+  box-shadow:0 4px 24px rgba(100,120,180,0.12),inset 0 -1px 0 rgba(0,0,0,0.03)}
+html.light .nav-appname{color:#1e293b}
+html.light .nav-sep{background:rgba(0,0,0,0.1)}
+html.light .cat-btn{border-color:rgba(0,0,0,0.12);color:rgba(0,0,0,0.45)}
+html.light .cat-btn.active{background:rgba(37,99,235,0.1);border-color:#2563eb;color:#2563eb}
+html.light .nav-item{color:rgba(0,0,0,0.45)}
+html.light .nav-item:hover{color:rgba(0,0,0,0.8);background:rgba(0,0,0,0.04)}
+html.light .nav-item.active{color:#2563eb;border-bottom-color:#2563eb}
+html.light .nav-icon-btn{border-color:rgba(0,0,0,0.1);color:rgba(0,0,0,0.5)}
+html.light .nav-icon-btn:hover{background:rgba(0,0,0,0.06);color:#1e293b}
+html.light .content{background:#f1f5f9}
+html.light .page-title{color:#1e293b}
+html.light .page-sub,html.light .kpi-sub,html.light .card-sub{color:#64748b}
+html.light .kpi{background:linear-gradient(160deg,rgba(255,255,255,0.85),rgba(255,255,255,0.6));
+  border-color:rgba(255,255,255,0.8);
+  box-shadow:0 10px 30px rgba(100,120,180,0.18),inset 0 1px 0 rgba(255,255,255,0.9)}
+html.light .kpi::before{background:linear-gradient(90deg,transparent,rgba(255,255,255,0.9),transparent)}
+html.light .kpi:hover{border-color:rgba(96,165,250,0.5);
+  box-shadow:0 18px 44px rgba(100,120,180,0.28),0 0 0 1px rgba(96,165,250,0.15)}
+html.light .kpi-label{color:rgba(0,0,0,0.45)}
+html.light .kpi-value{color:#1e293b}
+html.light .kpi-value.accent{background:linear-gradient(90deg,#2563eb,#7c3aed);
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+html.light .card{background:linear-gradient(160deg,rgba(255,255,255,0.8),rgba(255,255,255,0.55));
+  border-color:rgba(255,255,255,0.75);
+  box-shadow:0 8px 28px rgba(100,120,180,0.16),inset 0 1px 0 rgba(255,255,255,0.85)}
+html.light .card-title{color:rgba(0,0,0,0.8)}
+html.light .tabs{border-bottom-color:rgba(0,0,0,0.08)}
+html.light .tab{color:rgba(0,0,0,0.4);background:transparent}
+html.light .tab:hover{color:rgba(0,0,0,0.7)}
+html.light .tab.active{color:#2563eb;background:rgba(37,99,235,0.07);border-bottom-color:#2563eb}
+html.light .form-control{background:rgba(0,0,0,0.03);border-color:rgba(0,0,0,0.12);color:#1e293b}
+html.light .form-control:focus{border-color:#2563eb;background:rgba(37,99,235,0.05)}
+html.light .form-control option{background:#fff;color:#1e293b}
+html.light .form-label{color:rgba(0,0,0,0.5)}
+html.light .radio-btn{border-color:rgba(0,0,0,0.12);color:rgba(0,0,0,0.5)}
+html.light .radio-btn.active{background:rgba(37,99,235,0.1);border-color:#2563eb;color:#2563eb}
+html.light .btn-secondary{background:rgba(0,0,0,0.05);color:rgba(0,0,0,0.6);border-color:rgba(0,0,0,0.1)}
+html.light .btn-secondary:hover{background:rgba(0,0,0,0.08);color:#1e293b}
+html.light .tbl-wrap{border-color:rgba(255,255,255,0.7);
+  background:linear-gradient(160deg,rgba(255,255,255,0.8),rgba(255,255,255,0.55));
+  box-shadow:0 8px 28px rgba(100,120,180,0.14),inset 0 1px 0 rgba(255,255,255,0.85)}
+html.light .tbl-wrap th{background:rgba(255,255,255,0.5);color:rgba(0,0,0,0.45);border-bottom-color:rgba(0,0,0,0.07)}
+html.light .tbl-wrap td{color:#374151;border-bottom-color:rgba(0,0,0,0.05)}
+html.light .tbl-wrap tr:hover td{background:rgba(96,165,250,0.07)}
+html.light .expander{border-color:rgba(0,0,0,0.08)}
+html.light .expander-header{background:rgba(0,0,0,0.02);color:rgba(0,0,0,0.7)}
+html.light .expander-header:hover{background:rgba(0,0,0,0.04)}
+html.light .info-box{background:rgba(37,99,235,0.07);border-color:rgba(37,99,235,0.2);color:#2563eb}
+html.light .warn-box{background:rgba(245,158,11,0.07);border-color:rgba(245,158,11,0.2);color:#b45309}
+html.light .vs-banner{background:rgba(37,99,235,0.06);border-color:rgba(37,99,235,0.15);color:#2563eb}
+html.light .divider{border-top-color:rgba(0,0,0,0.07)}
+html.light .badge-blue{background:rgba(37,99,235,0.1);color:#2563eb}
+html.light .badge-green{background:rgba(34,197,94,0.1);color:#16a34a}
+html.light .badge-red{background:rgba(239,68,68,0.1);color:#dc2626}
+html.light .badge-amber{background:rgba(245,158,11,0.1);color:#d97706}
+html.light .progress-wrap{background:rgba(0,0,0,0.08)}
+html.light .toast{background:#fff;border-color:#2563eb;color:#2563eb;box-shadow:0 8px 24px rgba(0,0,0,0.15)}
+html.light .settings-panel{background:#fff;border-left-color:rgba(0,0,0,0.08)}
+html.light .settings-hd{border-bottom-color:rgba(0,0,0,0.07)}
+html.light .settings-ttl{color:#1e293b}
+html.light .settings-x{background:rgba(0,0,0,0.06);color:rgba(0,0,0,0.6)}
+html.light .s-sec-ttl{color:rgba(0,0,0,0.3)}
+html.light .s-lbl{color:rgba(0,0,0,0.7)}
+html.light .s-inp{background:rgba(0,0,0,0.03);border-color:rgba(0,0,0,0.12);color:#1e293b}
+html.light .s-inp:focus{border-color:#2563eb}
+html.light .tog-btn{border-color:rgba(0,0,0,0.12);color:rgba(0,0,0,0.45)}
+html.light .tog-btn.active{background:rgba(37,99,235,0.1);border-color:#2563eb;color:#2563eb}
+
+/* ── Page header ── */
+.page-title{font-size:20px;font-weight:700;color:#fff;margin-bottom:4px}
+.page-sub{font-size:12px;color:#64748b;margin-bottom:22px}
+
+/* ── Streamlit vs HTML 배너 ── */
+.vs-banner{background:rgba(58,130,255,0.08);border:1px solid rgba(58,130,255,0.2);
+           border-radius:10px;padding:8px 14px;margin-bottom:18px;font-size:12px;
+           color:#93c5fd;display:flex;align-items:center;gap:8px}
+.vs-banner b{color:#3A82FF}
+
+/* ── KPI (글래스 카드) ── */
+.kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:18px}
+.kpi-row.three{grid-template-columns:repeat(3,1fr)}
+.kpi{background:linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.03));
+     border:1px solid rgba(255,255,255,0.1);border-radius:18px;padding:18px 22px;
+     position:relative;overflow:hidden;
+     box-shadow:0 10px 30px rgba(0,0,0,0.28),inset 0 1px 0 rgba(255,255,255,0.14);
+     backdrop-filter:blur(14px) saturate(130%);-webkit-backdrop-filter:blur(14px) saturate(130%);
+     transition:transform .22s cubic-bezier(.4,0,.2,1),box-shadow .22s,border-color .22s}
+.kpi::before{content:"";position:absolute;top:0;left:0;right:0;height:1px;
+     background:linear-gradient(90deg,transparent,rgba(255,255,255,0.35),transparent)}
+.kpi:hover{transform:translateY(-3px);border-color:rgba(120,170,255,0.4);
+     box-shadow:0 18px 44px rgba(0,0,0,0.4),0 0 0 1px rgba(96,165,250,0.12),inset 0 1px 0 rgba(255,255,255,0.2)}
+.kpi-label{font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);
+           letter-spacing:.5px;margin-bottom:10px}
+.kpi-value{font-size:26px;font-weight:800;color:#fff;letter-spacing:-.6px}
+.kpi-value.accent{background:linear-gradient(90deg,#60a5fa,#a78bfa);
+           -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.kpi-sub{font-size:11px;margin-top:6px;color:rgba(255,255,255,0.38)}
+
+/* ── Card (글래스) ── */
+.card{background:linear-gradient(160deg,rgba(255,255,255,0.05),rgba(255,255,255,0.025));
+      border:1px solid rgba(255,255,255,0.09);border-radius:18px;padding:20px 24px;margin-bottom:16px;
+      position:relative;overflow:hidden;
+      box-shadow:0 8px 28px rgba(0,0,0,0.24),inset 0 1px 0 rgba(255,255,255,0.1);
+      backdrop-filter:blur(12px) saturate(125%);-webkit-backdrop-filter:blur(12px) saturate(125%)}
+.card-title{font-size:14px;font-weight:600;color:rgba(255,255,255,0.88);margin-bottom:3px}
+.card-sub{font-size:11px;color:rgba(255,255,255,0.38);margin-bottom:14px}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:2px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:20px}
+.tab{padding:9px 18px;border-radius:8px 8px 0 0;font-size:13px;font-weight:500;
+     color:rgba(255,255,255,0.4);cursor:pointer;transition:all .15s;border:none;
+     background:transparent;font-family:'Inter',sans-serif;letter-spacing:-.1px}
+.tab:hover{color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.04)}
+.tab.active{color:#93c5fd;background:linear-gradient(180deg,rgba(96,165,250,0.14),rgba(96,165,250,0.04));
+            border-bottom:2px solid #60a5fa;text-shadow:0 0 14px rgba(96,165,250,0.4)}
+.tab-pane{display:none;animation:fadeUp .2s ease}
+.tab-pane.active{display:block}
+
+/* ── Form ── */
+.form-group{margin-bottom:14px}
+.form-label{font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);
+            letter-spacing:.4px;margin-bottom:6px;display:block}
+.form-control{width:100%;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);
+              border-radius:8px;padding:9px 12px;color:#e2e8f0;font-size:13px;
+              font-family:'Inter',sans-serif;transition:border-color .15s;outline:none}
+.form-control:focus{border-color:#3A82FF;background:rgba(58,130,255,0.06)}
+.form-control option{background:#1e2d45;color:#e2e8f0}
+/* select와 datalist 입력의 드롭다운 화살표 통일 */
+select.form-control, input.form-control[list]{
+  -webkit-appearance:none;-moz-appearance:none;appearance:none;cursor:pointer;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;
+}
+input.form-control[list]::-webkit-calendar-picker-indicator{opacity:0;width:20px;cursor:pointer}
+.form-row{display:grid;gap:12px}
+.form-row.cols-2{grid-template-columns:1fr 1fr}
+.form-row.cols-3{grid-template-columns:3fr 2fr 2fr}
+.form-row.cols-32{grid-template-columns:3fr 1fr}
+.radio-group{display:flex;gap:8px}
+.radio-btn{padding:6px 14px;border-radius:6px;border:1px solid rgba(255,255,255,0.12);
+           background:transparent;color:rgba(255,255,255,0.5);font-size:12px;
+           cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}
+.radio-btn.active{background:rgba(58,130,255,0.15);border-color:#3A82FF;color:#3A82FF}
+.slider-wrap{position:relative}
+input[type=range]{width:100%;accent-color:#3A82FF;height:4px}
+.slider-val{font-size:13px;font-weight:600;color:#3A82FF;margin-top:4px}
+.info-box{background:rgba(58,130,255,0.08);border:1px solid rgba(58,130,255,0.2);
+          border-radius:8px;padding:8px 12px;font-size:12px;color:#93c5fd;margin-bottom:10px}
+.warn-box{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);
+          border-radius:8px;padding:8px 12px;font-size:12px;color:#fcd34d;margin-bottom:10px}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+     padding:9px 18px;border-radius:9px;border:none;font-size:13px;font-weight:600;
+     cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}
+.btn-primary{background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;
+             box-shadow:0 6px 18px rgba(59,130,246,0.35),inset 0 1px 0 rgba(255,255,255,0.2)}
+.btn-primary:hover{background:linear-gradient(135deg,#2563eb,#4f46e5);transform:translateY(-2px);
+             box-shadow:0 10px 26px rgba(59,130,246,0.45),inset 0 1px 0 rgba(255,255,255,0.25)}
+.btn-secondary{background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6);
+               border:1px solid rgba(255,255,255,0.1)}
+.btn-secondary:hover{background:rgba(255,255,255,0.1);color:#e2e8f0}
+.btn-danger{background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.2)}
+.btn-danger:hover{background:rgba(239,68,68,0.25)}
+.btn-full{width:100%}
+.btn-group{display:flex;gap:8px;margin-top:12px}
+
+/* ── Table (글래스) — .tbl-wrap 내부로 한정하여 외부 문서 렌더링에 영향 없음 ── */
+.tbl-wrap{overflow-x:auto;border-radius:16px;border:1px solid rgba(255,255,255,0.09);
+   background:linear-gradient(160deg,rgba(255,255,255,0.045),rgba(255,255,255,0.02));
+   box-shadow:0 8px 28px rgba(0,0,0,0.22),inset 0 1px 0 rgba(255,255,255,0.08);
+   backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.tbl-wrap table{width:100%;border-collapse:collapse;font-size:13px}
+.tbl-wrap th{background:rgba(255,255,255,0.05);padding:12px 16px;text-align:left;
+   font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);
+   letter-spacing:.4px;border-bottom:1px solid rgba(255,255,255,0.09)}
+.tbl-wrap td{padding:12px 16px;border-bottom:1px solid rgba(255,255,255,0.05);color:#cbd5e1;line-height:1.4}
+.tbl-wrap tr:last-child td{border-bottom:none}
+.tbl-wrap tr:hover td{background:rgba(120,170,255,0.06)}
+/* 출고 수정 표: 줄바꿈 방지 + 거래처/품목 말줄임으로 칸 어긋남 방지 */
+#stock-tab-edit .tbl-wrap td,#stock-tab-edit .tbl-wrap th{white-space:nowrap;vertical-align:middle;padding:10px 12px}
+#stock-tab-edit .tbl-wrap td:nth-child(2),#stock-tab-edit .tbl-wrap td:nth-child(3){max-width:150px;overflow:hidden;text-overflow:ellipsis}
+#stock-tab-edit .tbl-wrap .form-control{display:inline-block;vertical-align:middle}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-blue{background:rgba(58,130,255,0.15);color:#60a5fa}
+.badge-green{background:rgba(34,197,94,0.15);color:#4ade80}
+.badge-red{background:rgba(239,68,68,0.15);color:#f87171}
+.badge-amber{background:rgba(245,158,11,0.15);color:#fbbf24}
+.progress-wrap{background:rgba(255,255,255,0.07);border-radius:4px;height:6px;width:100%;min-width:80px}
+.progress-bar{height:6px;border-radius:4px;background:linear-gradient(90deg,#3b82f6,#22d3ee);transition:width .8s cubic-in-out;box-shadow:0 0 10px rgba(59,130,246,0.5)}
+
+/* ── Divider ── */
+.divider{border:none;border-top:1px solid rgba(255,255,255,0.07);margin:16px 0}
+
+/* ── 계약서 미리보기 (docx-preview) ── */
+#cont-preview{background:#5a5f66;border-radius:10px;max-height:620px;overflow:auto;padding:18px}
+#cont-preview .docx-wrapper{background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;gap:14px}
+#cont-preview .docx-wrapper>section.docx{box-shadow:0 6px 24px rgba(0,0,0,0.4);margin:0}
+#cont-preview .docx{color:#000}
+/* docx-preview가 'none' 문단 테두리를 줄로 잘못 렌더링하는 문제 보정 (표 테두리는 유지) */
+#cont-preview .docx p{border:none !important}
+
+/* ── Expander (글래스) ── */
+.expander{border:1px solid rgba(255,255,255,0.09);border-radius:14px;margin-bottom:12px;overflow:hidden;
+          background:rgba(255,255,255,0.03);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+          box-shadow:0 6px 20px rgba(0,0,0,0.18)}
+.expander-header{display:flex;justify-content:space-between;align-items:center;
+                 padding:13px 18px;cursor:pointer;background:rgba(255,255,255,0.04);
+                 font-size:13px;font-weight:500;color:rgba(255,255,255,0.75)}
+.expander-header:hover{background:rgba(255,255,255,0.07)}
+.expander-body{padding:16px;display:none}
+.expander-body.open{display:block}
+.expander-arrow{transition:transform .2s}
+.expander-arrow.open{transform:rotate(180deg)}
+
+/* ── Cart table ── */
+.cart-table{border:1px solid rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;margin:12px 0}
+.cart-table th{background:rgba(255,255,255,0.04)}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:28px;right:28px;
+       background:rgba(30,45,69,0.8);border:1px solid rgba(120,170,255,0.5);
+       border-radius:12px;padding:12px 18px;font-size:13px;color:#bfdbfe;
+       backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+       box-shadow:0 12px 32px rgba(0,0,0,0.5),0 0 24px rgba(96,165,250,0.2);transform:translateY(80px);opacity:0;
+       transition:all .3s cubic-bezier(.34,1.56,.64,1);z-index:1000}
+.toast.show{transform:translateY(0);opacity:1}
+
+/* ── Animations ── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.page{animation:fadeUp .22s ease;max-width:1080px;margin:0 auto}
+@keyframes countUp{from{opacity:0}to{opacity:1}}
+
+/* ── Responsive ── */
+@media(max-width:1024px){
+  .content{padding:20px 24px}
+}
+@media(max-width:768px){
+  .nav-caption,.nav-sep,.nav-cats{display:none}
+  .nav-item{padding:0 10px;font-size:12px}
+  .kpi-row{grid-template-columns:repeat(2,1fr)}
+  .kpi-row.three{grid-template-columns:repeat(2,1fr)}
+  .content{padding:16px}
+  .two-col{grid-template-columns:1fr}
+  .form-row.cols-3{grid-template-columns:1fr 1fr}
+  .settings-panel{width:100%}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── 상단 네비바 ── -->
+<nav class="topnav">
+  <!-- 앱 이름 -->
+  <div class="nav-brand">
+    <span class="nav-appname" id="nav-appname">MSO 통합 관리 시스템</span>
+    <span class="nav-caption">TheSC-MSO v2.0</span>
+  </div>
+  <div class="nav-sep"></div>
+
+  <!-- 카테고리 탭 -->
+  <div class="nav-cats">
+    <button class="cat-btn active" id="cat-btn-cosm" onclick="switchCat('cosm',this)">
+      <span id="cat-label-cosm">화장품</span>
+    </button>
+    <button class="cat-btn" id="cat-btn-med" onclick="switchCat('med',this)">
+      <span id="cat-label-med">의료장비</span>
+    </button>
+  </div>
+  <div class="nav-sep"></div>
+
+  <!-- 화장품 메뉴 -->
+  <div class="nav-menu" id="nav-menu-cosm">
+    <div class="nav-item active" onclick="navigate('dashboard',this)">
+      <span class="menu-label" id="menu-cosm-0">리포트</span>
+    </div>
+    <div class="nav-item" onclick="navigate('stock',this)">
+      <span class="menu-label" id="menu-cosm-1">영업 관리</span>
+    </div>
+    <div class="nav-item" onclick="navigate('recv',this)">
+      <span class="menu-label" id="menu-cosm-2">수금 현황</span>
+    </div>
+    <div class="nav-item" onclick="navigate('master',this)">
+      <span class="menu-label" id="menu-cosm-3">기초 관리</span>
+    </div>
+  </div>
+
+  <!-- 의료장비 메뉴 -->
+  <div class="nav-menu" id="nav-menu-med" style="display:none">
+    <div class="nav-item active" onclick="navigate('med-report',this)">
+      <span class="menu-label" id="menu-med-0">리포트</span>
+    </div>
+    <div class="nav-item" onclick="navigate('med-sales',this)">
+      <span class="menu-label" id="menu-med-1">영업 관리</span>
+    </div>
+    <div class="nav-item" onclick="navigate('med-recv',this)">
+      <span class="menu-label" id="menu-med-2">수금 현황</span>
+    </div>
+    <div class="nav-item" onclick="navigate('med-master',this)">
+      <span class="menu-label" id="menu-med-3">기초 관리</span>
+    </div>
+  </div>
+
+  <!-- 우측 아이콘 영역 -->
+  <div class="nav-right">
+    <button class="nav-icon-btn" id="theme-toggle-btn" onclick="toggleTheme()" title="테마 전환"></button>
+    <button class="nav-icon-btn" onclick="openSettings()" title="설정">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- ── 설정 드로어 ── -->
+<div class="settings-overlay" id="settings-overlay" onclick="closeSettings()"></div>
+<div class="settings-panel" id="settings-panel">
+  <div class="settings-hd">
+    <span class="settings-ttl">설정</span>
+    <button class="settings-x" onclick="closeSettings()">✕</button>
+  </div>
+  <div class="settings-body">
+
+    <!-- 테마 -->
+    <div class="s-sec">
+      <div class="s-sec-ttl">화면 테마</div>
+      <div class="s-row">
+        <span class="s-lbl">모드</span>
+        <div class="tog-wrap">
+          <button class="tog-btn active" id="theme-dark-btn" onclick="applyTheme('dark',this)">다크</button>
+          <button class="tog-btn" id="theme-light-btn" onclick="applyTheme('light',this)">라이트</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 앱 이름 -->
+    <div class="s-sec">
+      <div class="s-sec-ttl">앱 이름</div>
+      <div class="s-row">
+        <span class="s-lbl">이름</span>
+        <input class="s-inp" id="s-appname" placeholder="MSO 통합 관리 시스템">
+      </div>
+    </div>
+
+    <!-- 카테고리 이름 -->
+    <div class="s-sec">
+      <div class="s-sec-ttl">카테고리 이름</div>
+      <div class="s-row">
+        <span class="s-lbl">카테고리 1</span>
+        <input class="s-inp" id="s-cat-cosm" placeholder="화장품">
+      </div>
+      <div class="s-row">
+        <span class="s-lbl">카테고리 2</span>
+        <input class="s-inp" id="s-cat-med" placeholder="의료장비">
+      </div>
+    </div>
+
+    <!-- 메뉴 이름 — 화장품 -->
+    <div class="s-sec">
+      <div class="s-sec-ttl">메뉴 이름 — 카테고리 1</div>
+      <div class="s-row"><span class="s-lbl">메뉴 1</span><input class="s-inp" id="s-cosm-0" placeholder="리포트"></div>
+      <div class="s-row"><span class="s-lbl">메뉴 2</span><input class="s-inp" id="s-cosm-1" placeholder="영업 관리"></div>
+      <div class="s-row"><span class="s-lbl">메뉴 3</span><input class="s-inp" id="s-cosm-2" placeholder="수금 현황"></div>
+      <div class="s-row"><span class="s-lbl">메뉴 4</span><input class="s-inp" id="s-cosm-3" placeholder="기초 관리"></div>
+    </div>
+
+    <!-- 메뉴 이름 — 의료장비 -->
+    <div class="s-sec">
+      <div class="s-sec-ttl">메뉴 이름 — 카테고리 2</div>
+      <div class="s-row"><span class="s-lbl">메뉴 1</span><input class="s-inp" id="s-med-0" placeholder="리포트"></div>
+      <div class="s-row"><span class="s-lbl">메뉴 2</span><input class="s-inp" id="s-med-1" placeholder="영업 관리"></div>
+      <div class="s-row"><span class="s-lbl">메뉴 3</span><input class="s-inp" id="s-med-2" placeholder="수금 현황"></div>
+      <div class="s-row"><span class="s-lbl">메뉴 4</span><input class="s-inp" id="s-med-3" placeholder="기초 관리"></div>
+    </div>
+
+    <button class="s-apply" onclick="applySettings()">적용 및 저장</button>
+    <button class="s-apply" style="margin-top:8px;background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.1)" onclick="resetSettings()">초기화</button>
+  </div>
+</div>
+
+<!-- ── 메인 콘텐츠 ── -->
+<main class="content">
+
+<!-- ════ 화장품 대시보드 ════ -->
+<div id="page-dashboard" class="page">
+
+  <!-- 엑셀 다운로드 -->
+  <div class="card" style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
+    <div style="flex:1 1 200px;min-width:0">
+      <div class="card-title">리포트 엑셀 다운로드</div>
+      <div class="card-sub" style="margin-bottom:0">기간을 선택해 매출(출고) 내역을 엑셀로 추출합니다</div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">시작일</label>
+      <input type="date" class="form-control" id="rpt-from" style="width:150px">
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">종료일</label>
+      <input type="date" class="form-control" id="rpt-to" style="width:150px">
+    </div>
+    <button class="btn btn-primary" onclick="downloadReport('cosm')">엑셀 다운로드</button>
+  </div>
+
+  <!-- KPI Row 1 -->
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-label">오늘 매출</div>
+      <div class="kpi-value" id="kpi-today">0</div>
+      <div class="kpi-sub" id="kpi-today-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">주간 매출</div>
+      <div class="kpi-value" id="kpi-week">0</div>
+      <div class="kpi-sub">이번 주 누계</div></div>
+    <div class="kpi"><div class="kpi-label">월간 매출</div>
+      <div class="kpi-value" id="kpi-month">0</div>
+      <div class="kpi-sub" id="kpi-month-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">연간 매출</div>
+      <div class="kpi-value" id="kpi-year">0</div>
+      <div class="kpi-sub" id="kpi-year-sub"></div></div>
+  </div>
+  <!-- KPI Row 2 -->
+  <div class="kpi-row three">
+    <div class="kpi"><div class="kpi-label">미수금 합계</div>
+      <div class="kpi-value accent" id="kpi-recv">0</div>
+      <div class="kpi-sub">전체 누적</div></div>
+    <div class="kpi"><div class="kpi-label">이번달 평균 마진율</div>
+      <div class="kpi-value" id="kpi-margin">0%</div>
+      <div class="kpi-sub" id="kpi-margin-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">재고 부족 품목</div>
+      <div class="kpi-value" id="kpi-low">0개</div>
+      <div class="kpi-sub">최소 재고 미달</div></div>
+  </div>
+
+  <!-- 재고 부족 품목 -->
+  <div class="expander">
+    <div class="expander-header" onclick="toggleExpander(this)">
+      재고 부족 품목 2개 — 상세 보기
+      <span class="expander-arrow">▼</span>
+    </div>
+    <div class="expander-body">
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>제품명</th><th>현재고</th><th>최소재고</th></tr></thead>
+          <tbody id="dash-low-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 차트 2열 -->
+  <div class="two-col" style="margin-top:8px">
+    <div class="card">
+      <div class="card-title">월별 매출 추이</div>
+      <div class="card-sub">출고 기준</div>
+      <div id="chart-monthly" style="height:240px"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">연도별 매출 추이</div>
+      <div class="card-sub">출고 기준</div>
+      <div id="chart-yearly" style="height:240px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 입출고 관리 ════ -->
+<div id="page-stock" class="page" style="display:none">
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('stock','in',this)">입고 등록</button>
+    <button class="tab" onclick="switchTab('stock','out',this)">출고 등록</button>
+    <button class="tab" onclick="switchTab('stock','edit',this)">출고 수정</button>
+  </div>
+
+  <!-- 입고 등록 -->
+  <div id="stock-tab-in" class="tab-pane active">
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label">입고일</label>
+        <input type="date" class="form-control" id="in-date" style="max-width:200px">
+      </div>
+      <hr class="divider">
+      <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:12px">품목 추가</div>
+      <div class="form-row cols-32">
+        <div class="form-group">
+          <label class="form-label">품목 선택</label>
+          <select class="form-control" id="in-prod" onchange="onInProdChange()">
+            <option value="">로딩 중...</option>
+          </select>
+        </div>
+        <div></div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group">
+          <label class="form-label">수량</label>
+          <input type="number" class="form-control" value="1" min="1" id="in-qty">
+        </div>
+        <div class="form-group">
+          <label class="form-label">입고가</label>
+          <input type="number" class="form-control" value="85000" step="1000" id="in-price">
+        </div>
+        <div class="form-group">
+          <label class="form-label">유통기한 (선택)</label>
+          <input type="date" class="form-control" id="in-expiry">
+        </div>
+      </div>
+      <div class="info-box" style="margin-bottom:12px">Lot No.는 입고 등록 시 <b>입고일·품목 기준으로 자동 생성</b>됩니다.</div>
+      <button class="btn btn-secondary btn-full" onclick="addToCart()">목록에 추가</button>
+    </div>
+
+    <!-- 입고 카트 -->
+    <div id="in-cart-section" style="display:none">
+      <div class="card">
+        <div class="card-title">입고 목록</div>
+        <div class="tbl-wrap" style="margin-bottom:14px">
+          <table>
+            <thead><tr><th>#</th><th>품목</th><th>수량</th><th>입고가</th><th>유통기한</th><th>소계</th><th></th></tr></thead>
+            <tbody id="in-cart-body"></tbody>
+          </table>
+        </div>
+        <div class="info-box" id="in-total">합계 매입금액: ₩0</div>
+        <div class="form-group" style="margin-top:12px">
+          <label class="form-label">공통 메모</label>
+          <input type="text" class="form-control" id="in-note" placeholder="메모 입력 (선택)">
+        </div>
+        <div class="btn-group">
+          <button class="btn btn-primary" style="flex:1" onclick="submitCart()">입고 등록 완료</button>
+          <button class="btn btn-danger" onclick="clearCart()">전체 초기화</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 전체 입고 내역 -->
+    <div style="font-size:15px;font-weight:600;color:#fff;margin:20px 0 12px">전체 입고 내역</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>삭제</th><th>날짜</th><th>품목</th><th>Lot No.</th><th>수량</th><th>입고가</th><th>입고합계</th><th>잔여</th><th>유통기한</th></tr></thead>
+        <tbody id="stock-in-tbody"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-danger" style="margin-top:10px">삭제 적용</button>
+  </div>
+
+  <!-- 출고 등록 -->
+  <div id="stock-tab-out" class="tab-pane">
+    <div class="card">
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">유형</label>
+          <div class="radio-group">
+            <button class="radio-btn active" onclick="setRadio(this,'out-type','출고')">출고</button>
+            <button class="radio-btn" onclick="setRadio(this,'out-type','반품')">반품</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">날짜</label>
+          <input type="date" class="form-control" id="out-date">
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">거래처</label>
+          <select class="form-control" id="out-client" onchange="onClientChange()">
+            <option value="">로딩 중...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">&nbsp;</label>
+          <div class="info-box" id="client-info">[더데이랩스] 할인율: <b>20%</b></div>
+        </div>
+      </div>
+      <hr class="divider">
+      <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);margin-bottom:12px">품목 추가</div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">품목 선택</label>
+          <select class="form-control" id="out-prod" onchange="onOutProdChange()">
+            <option value="">로딩 중...</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Lot 선택</label>
+          <select class="form-control" id="out-lot">
+            <option value="auto">자동 (FIFO · 선입선출)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">수량</label>
+          <input type="number" class="form-control" value="1" min="1" id="out-qty">
+        </div>
+        <div class="form-group">
+          <label class="form-label">출고가 (단가, 직접 수정 가능)</label>
+          <input type="number" class="form-control" value="0" step="1000" id="out-price">
+        </div>
+      </div>
+      <div class="info-box" id="out-price-info" style="margin-bottom:12px">거래처·품목 선택 시 <b>납품가×(1−할인율)</b>로 자동 계산됩니다. 프로모션·특별가는 출고가를 직접 수정하세요.</div>
+      <div class="form-group">
+        <label class="form-label">메모 (선택)</label>
+        <input type="text" class="form-control" id="out-note" placeholder="프로모션/특별가 사유 등 (전체 공통)">
+      </div>
+      <button class="btn btn-secondary btn-full" onclick="addOutItem()">목록에 추가</button>
+    </div>
+
+    <!-- 출고 카트 (복수 품목) -->
+    <div id="out-cart-section" style="display:none">
+      <div class="card">
+        <div class="card-title">출고 목록</div>
+        <div class="tbl-wrap" style="margin-bottom:14px">
+          <table>
+            <thead><tr><th>#</th><th>품목</th><th>Lot</th><th>수량</th><th>출고가</th><th>소계</th><th></th></tr></thead>
+            <tbody id="out-cart-body"></tbody>
+          </table>
+        </div>
+        <div class="info-box" id="out-cart-total">합계 출고금액: ₩0</div>
+        <div class="btn-group">
+          <button class="btn btn-primary" style="flex:1" onclick="submitOutCart()">출고 등록 완료</button>
+          <button class="btn btn-danger" onclick="clearOutCart()">전체 초기화</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:15px;font-weight:600;color:#fff;margin:20px 0 12px">전체 출고 내역</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>날짜</th><th>거래처</th><th>품목</th><th>수량</th><th>출고가</th><th>합계</th><th>마진</th></tr></thead>
+        <tbody id="stock-out-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 출고 수정 -->
+  <div id="stock-tab-edit" class="tab-pane">
+    <div class="card">
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">기간 시작</label>
+          <input type="date" class="form-control" id="edit-from">
+        </div>
+        <div class="form-group">
+          <label class="form-label">기간 종료</label>
+          <input type="date" class="form-control" id="edit-to">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">거래처 필터</label>
+        <select class="form-control" id="edit-client-filter">
+          <option value="">전체</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="loadEditList()">조회</button>
+    </div>
+    <div class="info-box" style="margin-top:12px">수량·출고가(단가)를 수정하면 합계·부가세·마진이 자동 재계산되고, 수량 변경 시 재고도 자동 보정됩니다.</div>
+    <div class="tbl-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>날짜</th><th>거래처</th><th>품목</th><th>Lot No.</th><th>수량</th><th>출고가(단가)</th><th>저장</th></tr></thead>
+        <tbody id="stock-edit-tbody"><tr><td colspan="7" style="text-align:center;color:rgba(255,255,255,.3);padding:20px">조회 버튼을 눌러 출고 내역을 불러오세요</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 수금현황 ════ -->
+<div id="page-recv" class="page" style="display:none">
+
+  <div class="kpi-row" style="grid-template-columns:1fr;max-width:280px;margin-bottom:20px">
+    <div class="kpi"><div class="kpi-label">전체 미수금 합계</div>
+      <div class="kpi-value accent" id="recv-kpi-total">₩—</div>
+      <div class="kpi-sub">전체 누적</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('recv','list',this)">의원별 미수금 현황</button>
+    <button class="tab" onclick="switchTab('recv','pay',this)">수금 등록</button>
+    <button class="tab" onclick="switchTab('recv','ledger',this)">거래처 원장</button>
+    <button class="tab" onclick="switchTab('recv','pie',this)">🥧 미수금 비중</button>
+  </div>
+
+  <!-- 의원별 미수금 -->
+  <div id="recv-tab-list" class="tab-pane active">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>거래처</th><th>총매출</th><th>총수금</th><th>미수금</th><th>수금률</th></tr></thead>
+        <tbody id="recv-list-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 수금 등록 -->
+  <div id="recv-tab-pay" class="tab-pane">
+    <div class="form-group">
+      <label class="form-label">거래처</label>
+      <select class="form-control" style="max-width:280px" id="pay-client" onchange="onPayClientChange(this)">
+        <option value="">거래처 선택</option>
+      </select>
+    </div>
+    <div class="info-box" id="pay-recv-info">거래처를 선택하면 미수금이 표시됩니다.</div>
+    <div class="card">
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">수금일</label>
+          <input type="date" class="form-control" id="pay-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">수금액</label>
+          <input type="number" class="form-control" placeholder="0" step="10000" id="pay-amount">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">메모</label>
+        <input type="text" class="form-control" placeholder="메모 입력 (선택)" id="pay-note">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="submitPayment()">수금 등록</button>
+    </div>
+  </div>
+
+  <!-- 거래처 원장 -->
+  <div id="recv-tab-ledger" class="tab-pane">
+    <div class="form-group">
+      <label class="form-label">거래처 선택</label>
+      <select class="form-control" style="max-width:280px" id="ledger-client" onchange="loadLedger(this.value)">
+        <option value="">거래처 선택</option>
+      </select>
+    </div>
+    <div class="info-box" style="margin-top:12px">수금 내역은 날짜·금액을 직접 수정하거나 삭제할 수 있습니다. (출고 내역은 출고수정 탭에서 관리)</div>
+    <div class="tbl-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>날짜</th><th>구분</th><th>출고액</th><th>수금액</th><th>작업</th></tr></thead>
+        <tbody id="ledger-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 미수금 비중 Donut -->
+  <div id="recv-tab-pie" class="tab-pane">
+    <div id="chart-recv-pie" style="height:380px"></div>
+  </div>
+</div>
+
+<!-- ════ 기초관리 ════ -->
+<div id="page-master" class="page" style="display:none">
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('master','prod',this)">제품 관리</button>
+    <button class="tab" onclick="switchTab('master','client',this)">거래처 관리</button>
+  </div>
+
+  <!-- 제품 관리 -->
+  <div id="master-tab-prod" class="tab-pane active">
+    <div class="expander">
+      <div class="expander-header" onclick="toggleExpander(this)">
+        제품 등록 <span class="expander-arrow">▼</span>
+      </div>
+      <div class="expander-body">
+        <div class="form-row cols-3" style="margin-bottom:12px">
+          <div class="form-group">
+            <label class="form-label">제품명 *</label>
+            <input type="text" class="form-control" placeholder="제품명 입력">
+          </div>
+          <div class="form-group">
+            <label class="form-label">제품군 (선택 또는 직접 입력)</label>
+            <input class="form-control" id="prod-group-sel" list="prod-group-list" placeholder="기존 제품군 선택 또는 새로 입력" autocomplete="off">
+            <datalist id="prod-group-list"></datalist>
+          </div>
+          <div class="form-group">
+            <label class="form-label">규격</label>
+            <input type="text" class="form-control" placeholder="예: 50ml">
+          </div>
+        </div>
+        <div class="form-row cols-3">
+          <div class="form-group">
+            <label class="form-label">공급가</label>
+            <input type="number" class="form-control" placeholder="0" step="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label">납품가</label>
+            <input type="number" class="form-control" placeholder="0" step="100">
+          </div>
+          <div class="form-group">
+            <label class="form-label">최소 재고 알림</label>
+            <input type="number" class="form-control" value="10" min="0">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="showToast('제품이 등록되었습니다.')">등록</button>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>제품명</th><th>제품군</th><th>규격</th><th>공급가</th><th>납품가</th><th>최소재고</th><th>현재고</th><th>세트연동</th></tr></thead>
+        <tbody id="master-prod-tbody"></tbody>
+      </table>
+    </div>
+    <button class="btn btn-primary" style="margin-top:10px" onclick="showToast('저장 완료!')">저장</button>
+  </div>
+
+  <!-- 거래처 관리 -->
+  <div id="master-tab-client" class="tab-pane">
+    <div class="expander">
+      <div class="expander-header" onclick="toggleExpander(this)">
+        거래처 등록 <span class="expander-arrow">▼</span>
+      </div>
+      <div class="expander-body">
+        <div class="form-row cols-3" style="margin-bottom:12px">
+          <div class="form-group">
+            <label class="form-label">거래처명 *</label>
+            <input type="text" class="form-control" placeholder="의원명 입력">
+          </div>
+          <div class="form-group">
+            <label class="form-label">대분류</label>
+            <select class="form-control" id="cat-sel" onchange="onCatChange()">
+              <option value="">선택</option>
+              <option value="더데이랩스">더데이랩스</option>
+              <option value="루트스퀘어">루트스퀘어</option>
+              <option value="비네트워크">비네트워크</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">담당자</label>
+            <input type="text" class="form-control" placeholder="담당자명">
+          </div>
+        </div>
+        <div id="cat-info" class="info-box" style="display:none"></div>
+        <div class="form-group">
+          <label class="form-label">세부 할인율 조정 (%)</label>
+          <div class="slider-wrap">
+            <input type="range" min="0" max="50" value="17" id="disc-slider" oninput="document.getElementById('disc-val').textContent=this.value+'%'">
+            <div class="slider-val" id="disc-val">17%</div>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-full" onclick="showToast('거래처가 등록되었습니다.')">등록</button>
+      </div>
+    </div>
+
+    <div style="font-size:15px;font-weight:600;color:#fff;margin:16px 0 12px">등록된 거래처 수정</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>거래처명</th><th>대분류</th><th>담당자</th><th>할인율(%)</th></tr></thead>
+        <tbody id="master-client-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn btn-secondary">대분류 기본 할인율 일괄 적용</button>
+      <button class="btn btn-primary" onclick="showToast('변경사항이 저장되었습니다.')">변경사항 저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 의료장비 리포트 ════ -->
+<div id="page-med-report" class="page" style="display:none">
+
+  <!-- 엑셀 다운로드 -->
+  <div class="card" style="display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap">
+    <div style="flex:1 1 200px;min-width:0">
+      <div class="card-title">리포트 엑셀 다운로드</div>
+      <div class="card-sub" style="margin-bottom:0">기간을 선택해 납품 내역을 엑셀로 추출합니다</div>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">시작일</label>
+      <input type="date" class="form-control" id="med-rpt-from" style="width:150px">
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">종료일</label>
+      <input type="date" class="form-control" id="med-rpt-to" style="width:150px">
+    </div>
+    <button class="btn btn-primary" onclick="downloadReport('med')">엑셀 다운로드</button>
+  </div>
+
+  <div class="kpi-row">
+    <div class="kpi"><div class="kpi-label">오늘 납품액</div>
+      <div class="kpi-value" id="med-kpi-today">₩0</div>
+      <div class="kpi-sub" id="med-kpi-today-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">이번달 납품액</div>
+      <div class="kpi-value" id="med-kpi-month">₩0</div>
+      <div class="kpi-sub" id="med-kpi-month-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">연간 납품액</div>
+      <div class="kpi-value" id="med-kpi-year">₩0</div>
+      <div class="kpi-sub" id="med-kpi-year-sub"></div></div>
+    <div class="kpi"><div class="kpi-label">전체 미수금</div>
+      <div class="kpi-value accent" id="med-kpi-recv">₩0</div>
+      <div class="kpi-sub">누적</div></div>
+  </div>
+
+  <div class="two-col">
+    <div class="card">
+      <div class="card-title">월별 납품액 추이</div>
+      <div id="med-chart-monthly" style="height:260px"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">결제방식별 비중</div>
+      <div id="med-chart-pay" style="height:260px"></div>
+    </div>
+  </div>
+
+  <div style="font-size:15px;font-weight:600;color:#fff;margin:4px 0 12px">병원별 납품 현황</div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>병원명</th><th>납품건수</th><th>납품액합계</th><th>수금액</th><th>미수금</th></tr></thead>
+      <tbody id="med-report-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ════ 의료장비 영업 관리 ════ -->
+<div id="page-med-sales" class="page" style="display:none">
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('med-sales','buy',this)">매입 등록</button>
+    <button class="tab" onclick="switchTab('med-sales','out',this)">납품 등록</button>
+  </div>
+
+  <!-- 매입 등록 -->
+  <div id="med-sales-tab-buy" class="tab-pane active">
+    <div class="card">
+      <div class="form-group">
+        <label class="form-label">매입일</label>
+        <input type="date" class="form-control" id="med-in-date" style="max-width:220px">
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">장비사</label>
+          <input type="text" class="form-control" id="med-in-mfr" placeholder="예: 솔타메디칼">
+        </div>
+        <div class="form-group">
+          <label class="form-label">장비명</label>
+          <input type="text" class="form-control" id="med-in-prod" placeholder="예: 써마지 FLX">
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">가격 유형</label>
+          <div class="radio-group">
+            <button class="radio-btn active" onclick="setRadio(this,'med-in-type','직납')">직납</button>
+            <button class="radio-btn" onclick="setRadio(this,'med-in-type','매입')">매입</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">장비 가격</label>
+          <input type="number" class="form-control" id="med-in-price" placeholder="0" step="100000">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">시리얼번호</label>
+        <input type="text" class="form-control" id="med-in-serial" placeholder="SN-XXXXX">
+      </div>
+      <div class="form-group">
+        <label class="form-label">비고</label>
+        <input type="text" class="form-control" id="med-in-note" placeholder="메모 (선택)">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="submitMedIn()">매입 등록</button>
+    </div>
+    <div style="font-size:15px;font-weight:600;color:#fff;margin:16px 0 12px">전체 매입 내역</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>날짜</th><th>장비사</th><th>장비명</th><th>가격유형</th><th>매입가</th><th>시리얼번호</th><th>비고</th></tr></thead>
+        <tbody id="med-in-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 납품 등록 -->
+  <div id="med-sales-tab-out" class="tab-pane">
+    <div class="card">
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">납품일</label>
+          <input type="date" class="form-control" id="med-out-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">병원명</label>
+          <input type="text" class="form-control" id="med-out-hosp" placeholder="병원명 직접 입력">
+        </div>
+      </div>
+      <div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:8px">아래 표에 장비를 행 추가하여 복수 등록 가능합니다.</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>장비명</th><th>장비사</th><th>납품가</th><th>수수료</th><th>시리얼번호</th><th>매입여부</th><th>결제방식</th><th>비고</th><th></th></tr>
+          </thead>
+          <tbody id="med-out-rows">
+            <tr>
+              <td><input type="text" class="form-control" placeholder="써마지 FLX" style="min-width:100px"></td>
+              <td><input type="text" class="form-control" placeholder="솔타메디칼" style="min-width:80px"></td>
+              <td><input type="number" class="form-control" placeholder="0" style="min-width:90px" step="100000"></td>
+              <td><input type="number" class="form-control" placeholder="0" style="min-width:70px" step="10000"></td>
+              <td><input type="text" class="form-control" placeholder="SN-XXXXX" style="min-width:80px"></td>
+              <td><select class="form-control" style="min-width:70px"><option>매입</option><option>위탁</option></select></td>
+              <td><select class="form-control" style="min-width:70px"><option>현금</option><option>카드</option><option>리스</option></select></td>
+              <td><input type="text" class="form-control" placeholder="비고" style="min-width:70px"></td>
+              <td><button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="removeMedRow(this)">삭제</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="btn-group" style="margin-top:12px">
+        <button class="btn btn-secondary" onclick="addMedRow()" style="flex:0 0 auto">행 추가</button>
+        <button class="btn btn-primary" style="flex:1" onclick="submitMedOut()">납품 등록</button>
+        <button class="btn btn-danger" style="flex:0 0 auto" onclick="document.getElementById('med-out-rows').innerHTML=''">전체 삭제</button>
+      </div>
+    </div>
+    <div style="font-size:15px;font-weight:600;color:#fff;margin:16px 0 12px">전체 납품 내역</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>날짜</th><th>병원명</th><th>장비명</th><th>장비사</th><th>매입여부</th><th>결제방식</th><th>납품가</th><th>수수료</th></tr></thead>
+        <tbody id="med-out-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ════ 의료장비 수금현황 ════ -->
+<div id="page-med-recv" class="page" style="display:none">
+
+  <div class="kpi-row" style="grid-template-columns:1fr;max-width:280px;margin-bottom:20px">
+    <div class="kpi"><div class="kpi-label">전체 미수금 합계</div>
+      <div class="kpi-value accent" id="med-recv-kpi-total">₩—</div>
+      <div class="kpi-sub">전체 누적</div></div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('med-recv','list',this)">병원별 미수금</button>
+    <button class="tab" onclick="switchTab('med-recv','pay',this)">수금 등록</button>
+    <button class="tab" onclick="switchTab('med-recv','ledger',this)">병원 원장</button>
+  </div>
+
+  <!-- 병원별 미수금 -->
+  <div id="med-recv-tab-list" class="tab-pane active">
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>병원명</th><th>총납품액</th><th>총수금액</th><th>미수금</th><th>수금률</th></tr></thead>
+        <tbody id="med-recv-list-tbody"></tbody>
+      </table>
+    </div>
+    <hr class="divider" style="margin:20px 0">
+    <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:10px">리스 납품 현황</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>날짜</th><th>병원명</th><th>장비명</th><th>납품가</th><th>비고</th></tr></thead>
+        <tbody id="med-recv-lease-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 수금 등록 -->
+  <div id="med-recv-tab-pay" class="tab-pane">
+    <div class="form-group">
+      <label class="form-label">병원 선택</label>
+      <select class="form-control" style="max-width:280px" id="med-pay-client" onchange="onMedPayClientChange(this)">
+        <option value="">병원 선택</option>
+      </select>
+    </div>
+    <div class="info-box" id="med-pay-recv-info">병원을 선택하면 미수금이 표시됩니다.</div>
+    <div class="card">
+      <div class="form-row cols-3">
+        <div class="form-group">
+          <label class="form-label">수금일</label>
+          <input type="date" class="form-control" id="med-pay-date">
+        </div>
+        <div class="form-group">
+          <label class="form-label">수금액</label>
+          <input type="number" class="form-control" id="med-pay-amount" placeholder="0" step="100000">
+        </div>
+        <div class="form-group">
+          <label class="form-label">결제방식</label>
+          <div class="radio-group">
+            <button class="radio-btn active" onclick="setRadio(this,'med-pay-type','현금')">현금</button>
+            <button class="radio-btn" onclick="setRadio(this,'med-pay-type','카드')">카드</button>
+            <button class="radio-btn" onclick="setRadio(this,'med-pay-type','리스')">리스</button>
+          </div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">메모</label>
+        <input type="text" class="form-control" id="med-pay-note" placeholder="메모 입력 (선택)">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="submitMedPay()">수금 등록</button>
+    </div>
+  </div>
+
+  <!-- 병원 원장 -->
+  <div id="med-recv-tab-ledger" class="tab-pane">
+    <div class="form-group">
+      <label class="form-label">병원 선택</label>
+      <select class="form-control" style="max-width:280px" id="med-ledger-client" onchange="loadMedLedger(this.value)">
+        <option value="">병원 선택</option>
+      </select>
+    </div>
+    <div class="tbl-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>날짜</th><th>구분</th><th>납품액</th><th>수금액</th></tr></thead>
+        <tbody id="med-ledger-tbody"></tbody>
+      </table>
+    </div>
+    <div class="info-box" style="margin-top:12px" id="med-ledger-balance"></div>
+  </div>
+</div>
+
+<!-- ════ 의료장비 기초관리 ════ -->
+<div id="page-med-master" class="page" style="display:none">
+
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('med-master','equip',this)">장비 관리</button>
+    <button class="tab" onclick="switchTab('med-master','client',this)">거래처 관리</button>
+    <button class="tab" onclick="switchTab('med-master','contract',this)">계약서 발급</button>
+    <button class="tab" onclick="switchTab('med-master','docs',this)">문서함</button>
+  </div>
+
+  <!-- 장비 관리 -->
+  <div id="med-master-tab-equip" class="tab-pane active">
+    <div class="expander">
+      <div class="expander-header" onclick="toggleExpander(this)">
+        장비 등록 <span class="expander-arrow">▼</span>
+      </div>
+      <div class="expander-body">
+        <div class="form-row cols-3">
+          <div class="form-group">
+            <label class="form-label">장비명 *</label>
+            <input type="text" class="form-control" id="med-prod-name" placeholder="예: 써마지 FLX">
+          </div>
+          <div class="form-group">
+            <label class="form-label">장비사 *</label>
+            <input type="text" class="form-control" id="med-prod-mfr" placeholder="예: 솔타메디칼">
+          </div>
+          <div class="form-group">
+            <label class="form-label">규격</label>
+            <input type="text" class="form-control" id="med-prod-spec" placeholder="규격 입력">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-full" style="margin-top:8px" onclick="submitMedProd()">등록</button>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>ID</th><th>장비명</th><th>장비사</th><th>규격</th></tr></thead>
+        <tbody id="med-prod-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 거래처 관리 -->
+  <div id="med-master-tab-client" class="tab-pane">
+    <div class="expander">
+      <div class="expander-header" onclick="toggleExpander(this)">
+        거래처 등록 <span class="expander-arrow">▼</span>
+      </div>
+      <div class="expander-body">
+        <div class="form-row cols-2" style="margin-bottom:12px">
+          <div class="form-group">
+            <label class="form-label">병원명 *</label>
+            <input type="text" class="form-control" id="med-cli-name" placeholder="병원명 입력">
+          </div>
+          <div class="form-group">
+            <label class="form-label">대표자명</label>
+            <input type="text" class="form-control" id="med-cli-ceo" placeholder="대표자명">
+          </div>
+        </div>
+        <div class="form-row cols-2" style="margin-bottom:12px">
+          <div class="form-group">
+            <label class="form-label">담당자</label>
+            <input type="text" class="form-control" id="med-cli-contact" placeholder="담당자">
+          </div>
+          <div class="form-group">
+            <label class="form-label">연락처</label>
+            <input type="text" class="form-control" id="med-cli-phone" placeholder="02-XXXX-XXXX">
+          </div>
+        </div>
+        <div class="form-row cols-2">
+          <div class="form-group">
+            <label class="form-label">주소</label>
+            <input type="text" class="form-control" id="med-cli-addr" placeholder="주소 입력">
+          </div>
+          <div class="form-group">
+            <label class="form-label">여신한도</label>
+            <input type="number" class="form-control" id="med-cli-credit" placeholder="0" step="1000000">
+          </div>
+        </div>
+        <button class="btn btn-primary btn-full" style="margin-top:8px" onclick="submitMedClient()">등록</button>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:12px">
+      <table>
+        <thead><tr><th>ID</th><th>병원명</th><th>대표자</th><th>담당자</th><th>연락처</th><th>주소</th><th>여신한도</th></tr></thead>
+        <tbody id="med-client-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 계약서 발급 -->
+  <div id="med-master-tab-contract" class="tab-pane">
+
+    <!-- 양식 관리 -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="flex:1 1 200px">
+          <div class="card-title">계약서 양식</div>
+          <div class="card-sub" id="tmpl-status" style="margin-bottom:0">확인 중…</div>
+        </div>
+        <div class="btn-group" style="margin-top:0">
+          <button class="btn btn-secondary" id="tmpl-dl-btn" onclick="downloadTemplate()" style="display:none">양식 확인</button>
+          <button class="btn btn-danger" id="tmpl-del-btn" onclick="deleteTemplate()" style="display:none">삭제</button>
+        </div>
+      </div>
+      <hr class="divider">
+      <div class="form-group" style="margin-bottom:8px">
+        <label class="form-label">양식 업로드 / 교체 (.docx) — 안에 <b>{{병원명}} {{대표자명}} {{소재지}} {{제품명}} {{공급가격}} {{계약일자}}</b> 삽입</label>
+        <input type="file" class="form-control" id="tmpl-file" accept=".docx" style="color:rgba(255,255,255,.7)">
+      </div>
+      <button class="btn btn-primary" onclick="uploadTemplate()">양식 저장</button>
+    </div>
+
+    <!-- 계약 정보 입력 -->
+    <div class="card">
+      <div class="card-title">계약 정보 입력</div>
+      <div class="card-sub">입력한 값이 양식의 플레이스홀더에 채워집니다</div>
+      <div class="form-group">
+        <label class="form-label">병원명</label>
+        <input type="text" class="form-control" id="cont-hosp" placeholder="병원명">
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">대표자명</label>
+          <input type="text" class="form-control" id="cont-ceo" placeholder="대표자명">
+        </div>
+        <div class="form-group">
+          <label class="form-label">소재지</label>
+          <input type="text" class="form-control" id="cont-addr" placeholder="소재지">
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">제품명</label>
+          <input type="text" class="form-control" id="cont-prod" placeholder="장비명">
+        </div>
+        <div class="form-group">
+          <label class="form-label">공급가격 (VAT포함)</label>
+          <input type="number" class="form-control" id="cont-price" placeholder="0" step="1000000">
+        </div>
+      </div>
+      <div class="btn-group">
+        <button class="btn btn-secondary" style="flex:1" onclick="previewContract()">미리보기</button>
+        <button class="btn btn-primary" style="flex:1" onclick="generateContract()">계약서 생성 → 다운로드</button>
+      </div>
+    </div>
+
+    <!-- 계약서 미리보기 -->
+    <div class="card" id="cont-preview-wrap" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        <div class="card-title" style="margin-bottom:0">계약서 미리보기</div>
+        <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="document.getElementById('cont-preview-wrap').style.display='none'">닫기</button>
+      </div>
+      <div id="cont-preview"></div>
+    </div>
+  </div>
+
+  <!-- 문서함 -->
+  <div id="med-master-tab-docs" class="tab-pane">
+    <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:12px">파일 업로드</div>
+    <div class="card">
+      <div class="form-row cols-2">
+        <div class="form-group">
+          <label class="form-label">병원명</label>
+          <select class="form-control" id="doc-hosp-sel">
+            <option value="">병원 선택</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">문서 종류</label>
+          <select class="form-control" id="doc-type-sel">
+            <option>납품계약서</option><option>매매계약서</option><option>기타</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">파일 선택 (JPG / PNG / PDF)</label>
+        <input type="file" class="form-control" id="doc-file" accept=".jpg,.jpeg,.png,.pdf" style="color:rgba(255,255,255,.7)">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="showToast('업로드 완료! (Supabase Storage 연동 후 저장 가능)')">업로드</button>
+    </div>
+    <hr class="divider" style="margin:16px 0">
+    <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:12px">문서 목록</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>병원명</th><th>파일명</th><th>종류</th><th>업로드일</th><th>보기</th></tr></thead>
+        <tbody id="med-docs-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Supabase 클라이언트 ───────────────────────────
+const SUPABASE_URL = 'https://wgrnqxxfzazvnbikkdgb.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indncm5xeHhmemF6dm5iaWtrZGdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3MzM4NjksImV4cCI6MjA5NDMwOTg2OX0.8yxbScVUCswP-heAiWOZ4mLnyEWsHkGK7M0T-k0kfGs';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ── DB 쿼리 헬퍼 ─────────────────────────────────
+async function dbQuery(table, params='') {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// ── 날짜 초기화 ──────────────────────────────────
+const TODAY = new Date();
+const fmt = d => d.toISOString().slice(0,10);
+document.querySelectorAll('input[type=date]').forEach(el => el.value = fmt(TODAY));
+document.getElementById('kpi-today-sub').textContent = fmt(TODAY);
+document.getElementById('kpi-month-sub').textContent = TODAY.getFullYear()+'년 '+String(TODAY.getMonth()+1).padStart(2,'0')+'월';
+document.getElementById('kpi-year-sub').textContent = TODAY.getFullYear()+'년';
+document.getElementById('med-kpi-today-sub').textContent = fmt(TODAY);
+document.getElementById('med-kpi-month-sub').textContent = TODAY.getFullYear()+'.'+String(TODAY.getMonth()+1).padStart(2,'0');
+document.getElementById('med-kpi-year-sub').textContent = TODAY.getFullYear()+'년';
+
+// ── 현재 상태 ────────────────────────────────────
+let currentPage = 'dashboard';
+let currentCat  = 'cosm';
+let inCart = [];
+
+// ── 네비게이션 ───────────────────────────────────
+function navigate(page, el) {
+  document.querySelectorAll('.page').forEach(p => p.style.display='none');
+  document.getElementById('page-'+page).style.display='block';
+  document.getElementById('page-'+page).classList.remove('page');
+  void document.getElementById('page-'+page).offsetWidth;
+  document.getElementById('page-'+page).classList.add('page');
+
+  document.querySelectorAll('#nav-menu-'+currentCat+' .nav-item').forEach(i=>i.classList.remove('active'));
+  if(el) el.closest('.nav-item').classList.add('active');
+  currentPage = page;
+
+  if(page==='dashboard')  initDashboard();
+  if(page==='stock')      initStockPage();
+  if(page==='recv')       { initRecvPage(); setTimeout(()=>initRecvPie(),100); }
+  if(page==='master')     initMasterPage();
+  if(page==='med-report') initMedReport();
+  if(page==='med-sales')  initMedSales();
+  if(page==='med-recv')   initMedRecv();
+  if(page==='med-master') initMedMaster();
+}
+
+function switchCat(cat, el) {
+  currentCat = cat;
+  document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('nav-menu-cosm').style.display = cat==='cosm'?'flex':'none';
+  document.getElementById('nav-menu-med').style.display  = cat==='med' ?'flex':'none';
+
+  if(cat==='cosm') navigate('dashboard', document.querySelector('#nav-menu-cosm .nav-item'));
+  else             navigate('med-report', document.querySelector('#nav-menu-med .nav-item'));
+}
+
+// ── 탭 전환 ─────────────────────────────────────
+function switchTab(group, name, el) {
+  document.querySelectorAll('[id^="'+group+'-tab-"]').forEach(p=>{
+    p.classList.remove('active'); p.style.display='none';
+  });
+  const pane = document.getElementById(group+'-tab-'+name);
+  pane.style.display='block';
+  setTimeout(()=>pane.classList.add('active'),10);
+
+  el.closest('.tabs').querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+
+  if(group==='recv' && name==='pie') setTimeout(initRecvPie,100);
+}
+
+// ── Expander ────────────────────────────────────
+function toggleExpander(header) {
+  const body  = header.nextElementSibling;
+  const arrow = header.querySelector('.expander-arrow');
+  const open  = body.classList.toggle('open');
+  arrow.classList.toggle('open', open);
+}
+
+// ── Radio 버튼 ───────────────────────────────────
+function setRadio(el, group, val) {
+  el.closest('.radio-group').querySelectorAll('.radio-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+// ── 거래처 카테고리 변경 ──────────────────────────
+const CAT_DISC = {'더데이랩스':20,'루트스퀘어':17,'비네트워크':10};
+function onCatChange() {
+  const cat = document.getElementById('cat-sel').value;
+  const info = document.getElementById('cat-info');
+  const sl = document.getElementById('disc-slider');
+  if(cat && CAT_DISC[cat]) {
+    info.style.display='block';
+    info.textContent = '['+cat+'] 기본 할인율: '+CAT_DISC[cat]+'%';
+    sl.value = CAT_DISC[cat];
+    document.getElementById('disc-val').textContent = CAT_DISC[cat]+'%';
+  } else {
+    info.style.display='none';
+  }
+}
+function onClientChange() {
+  document.getElementById('client-info').innerHTML = '[더데이랩스] 할인율: <b>20%</b>';
+}
+function onPayClientChange(sel) {}
+
+// ── 입고 품목 선택 시 입고가 자동 입력 ───────────
+function onInProdChange() {
+  const opt = document.getElementById('in-prod')?.selectedOptions[0];
+  const el = document.getElementById('in-price');
+  if(opt?.value && el) el.value = parseInt(opt.dataset.price)||0;
+}
+
+// ── Lot No. 자동 생성 (YYYYMMDD-제품ID-순번) ──────
+async function genLot(productId, dateStr, offset) {
+  const ymd = (dateStr||fmt(TODAY)).replace(/-/g,'');
+  const prefix = `${ymd}-${productId}-`;
+  let existing = [];
+  try { existing = await dbQuery('stock_in', `?product_id=eq.${productId}&lot_number=like.${prefix}*&select=lot_number`); } catch(e){}
+  const seq = (existing?.length||0) + (offset||0) + 1;
+  return prefix + String(seq).padStart(2,'0');
+}
+
+// ── 입고 카트 ────────────────────────────────────
+function addToCart() {
+  const sel = document.getElementById('in-prod');
+  const pid = sel?.value;
+  if(!pid){ showToast('품목을 선택하세요'); return; }
+  const name = sel.selectedOptions[0].text;
+  const qty   = parseInt(document.getElementById('in-qty').value)||1;
+  const price = parseInt(document.getElementById('in-price').value)||0;
+  const expiry = document.getElementById('in-expiry')?.value || '';
+  inCart.push({productId:pid, name, qty, price, expiry, sub: qty*price});
+  renderCart();
+  showToast('목록에 추가됐습니다.');
+}
+function renderCart() {
+  const tbody = document.getElementById('in-cart-body');
+  tbody.innerHTML = '';
+  let total = 0;
+  inCart.forEach((item,i) => {
+    total += item.sub;
+    tbody.innerHTML += `<tr>
+      <td>${i+1}</td><td>${item.name}</td><td>${item.qty}</td>
+      <td>₩${item.price.toLocaleString()}</td><td>${item.expiry||'—'}</td><td>₩${item.sub.toLocaleString()}</td>
+      <td><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="removeCart(${i})">삭제</button></td>
+    </tr>`;
+  });
+  document.getElementById('in-cart-section').style.display = inCart.length?'block':'none';
+  document.getElementById('in-total').textContent = '합계 매입금액: ₩'+total.toLocaleString();
+}
+function removeCart(i) { inCart.splice(i,1); renderCart(); }
+function clearCart()   { inCart=[]; renderCart(); }
+
+async function submitCart() {
+  if(!inCart.length){ showToast('입고할 품목이 없습니다'); return; }
+  const date = document.getElementById('in-date')?.value || fmt(TODAY);
+  const note = document.getElementById('in-note')?.value || null;
+  const perProdOffset = {};
+  let ok=0, fail=0;
+  for(const item of inCart){
+    const off = perProdOffset[item.productId]||0;
+    const lot = await genLot(item.productId, date, off);
+    perProdOffset[item.productId] = off+1;
+    const body = {
+      date, product_id: parseInt(item.productId), quantity: item.qty,
+      purchase_price: item.price, lot_number: lot,
+      expiry_date: item.expiry||null, remaining_qty: item.qty, note
+    };
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/stock_in`,{method:'POST',
+      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body: JSON.stringify(body)});
+    if(res.ok||res.status===201) ok++; else fail++;
+  }
+  inCart=[]; renderCart();
+  showToast(fail ? `입고 ${ok}건 등록, ${fail}건 실패` : `입고 ${ok}건 등록 완료`);
+  await loadMasterData(); initStockPage();
+}
+
+// ── 의료장비 행 추가 ─────────────────────────────
+function addMedRow() {
+  const tbody = document.getElementById('med-rows');
+  const row = document.createElement('tr');
+  row.innerHTML = `
+    <td><input type="text" class="form-control" placeholder="장비명" style="min-width:120px"></td>
+    <td><input type="text" class="form-control" placeholder="장비사" style="min-width:100px"></td>
+    <td><input type="number" class="form-control" placeholder="0" style="min-width:100px"></td>
+    <td><input type="number" class="form-control" placeholder="0" style="min-width:80px"></td>
+    <td><input type="text" class="form-control" placeholder="SN-XXXXX" style="min-width:110px"></td>
+    <td><select class="form-control" style="min-width:80px"><option>매입</option><option>위탁</option></select></td>
+    <td><select class="form-control" style="min-width:80px"><option>현금</option><option>카드</option><option>할부</option></select></td>
+    <td><button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="removeMedRow(this)">삭제</button></td>`;
+  tbody.appendChild(row);
+}
+function removeMedRow(btn) { btn.closest('tr').remove(); }
+
+// ── Toast ────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+// ── 카운트업 애니메이션 ──────────────────────────
+function countUp(el, target, prefix='', suffix='', dur=900) {
+  const start = performance.now();
+  const update = now => {
+    const p = Math.min((now-start)/dur, 1);
+    const ease = 1-Math.pow(1-p, 3);
+    const val = Math.floor(ease * target);
+    el.textContent = prefix + val.toLocaleString() + suffix;
+    if(p < 1) requestAnimationFrame(update);
+  };
+  requestAnimationFrame(update);
+}
+
+// ── Deep Space 공통 레이아웃 ─────────────────────
+const BG='rgba(0,0,0,0)', CARD='rgba(0,0,0,0)', GRID='rgba(148,163,255,0.07)';
+const TEXT='#E2E8F0', DIM='rgba(255,255,255,0.40)';
+const AC=['#60A5FA','#22D3EE','#34D399','#FBBF24','#F87171'];
+const FF='Inter, Pretendard, sans-serif';
+const EASE='cubic-in-out', DUR=1100;
+// 막대용 세로 그라데이션 colorscale (값 0→max 에 따라 색이 밝아짐)
+const BAR_CS=[[0,'rgba(59,130,246,0.55)'],[0.5,'rgba(96,165,250,0.85)'],[1,'rgba(34,211,238,0.95)']];
+const BAR_CS2=[[0,'rgba(99,102,241,0.5)'],[0.5,'rgba(129,140,248,0.8)'],[1,'rgba(167,139,250,0.95)']];
+
+function dsLayout(extra={}) {
+  return Object.assign({
+    paper_bgcolor: BG, plot_bgcolor: BG,
+    font: {family:FF, color:TEXT},
+    xaxis: {showgrid:false, zeroline:false, tickfont:{color:DIM}, linecolor:GRID},
+    yaxis: {showgrid:true, gridcolor:GRID, zeroline:false, tickfont:{color:DIM}},
+    legend: {bgcolor:'rgba(0,0,0,0)', font:{color:DIM}, orientation:'h',
+             yanchor:'bottom', y:1.02, xanchor:'right', x:1},
+    hoverlabel: {bgcolor:'#1E2D45', bordercolor:AC[0], font:{color:TEXT, size:13}},
+    hovermode: 'x unified',
+    margin: {l:0, r:0, t:10, b:10},
+    showlegend: true,
+  }, extra);
+}
+
+function autoPlay(divId, dur=DUR, ease=EASE) {
+  setTimeout(()=>{
+    Plotly.animate(divId, null, {
+      frame:{duration:dur, redraw:true},
+      transition:{duration:dur, easing:ease},
+      fromcurrent:false, mode:'immediate'
+    });
+  }, 400);
+}
+
+// ── 화장품 대시보드 차트 (Supabase 실데이터) ──────
+async function initDashboard() {
+  const year    = TODAY.getFullYear();
+  const monthPad = String(TODAY.getMonth()+1).padStart(2,'0');
+  const todayStr = fmt(TODAY);
+  const dow = TODAY.getDay() || 7;
+  const weekStart = new Date(TODAY);
+  weekStart.setDate(TODAY.getDate() - dow + 1);
+
+  // stock_out 당해년도 전체 fetch
+  const rows = await dbQuery('stock_out',
+    `?date=gte.${year}-01-01&select=date,total_amount,margin_amount`);
+
+  const sumKey = (arr, k) => arr.reduce((s,r)=>s+(r[k]||0), 0);
+
+  const todayRows = rows.filter(r => r.date === todayStr);
+  const weekRows  = rows.filter(r => r.date >= fmt(weekStart));
+  const monthRows = rows.filter(r => r.date?.startsWith(`${year}-${monthPad}`));
+
+  const todaySales = sumKey(todayRows, 'total_amount');
+  const weekSales  = sumKey(weekRows,  'total_amount');
+  const monthSales = sumKey(monthRows, 'total_amount');
+  const yearSales  = sumKey(rows,      'total_amount');
+  const yearMargin = sumKey(rows,      'margin_amount');
+  const marginPct  = yearSales > 0 ? (yearMargin/yearSales*100).toFixed(1) : '0.0';
+
+  // 미수금 = 전체 매출 - 전체 수금
+  const [allOut, allPay] = await Promise.all([
+    dbQuery('stock_out', '?select=total_amount'),
+    dbQuery('payments',  '?select=amount'),
+  ]);
+  const recv = Math.max(0, sumKey(allOut,'total_amount') - sumKey(allPay,'amount'));
+
+  // 재고 부족 카운트
+  const [prods, sins] = await Promise.all([
+    dbQuery('products', '?select=id,min_stock'),
+    dbQuery('stock_in', '?select=product_id,remaining_qty'),
+  ]);
+  const stockMap = {};
+  sins.forEach(r => { stockMap[r.product_id] = (stockMap[r.product_id]||0) + (r.remaining_qty||0); });
+  const lowCount = prods.filter(p => (stockMap[p.id]||0) < (p.min_stock||0)).length;
+
+  // KPI 표시
+  countUp(document.getElementById('kpi-today'),  todaySales, '₩');
+  countUp(document.getElementById('kpi-week'),   weekSales,  '₩');
+  countUp(document.getElementById('kpi-month'),  monthSales, '₩');
+  countUp(document.getElementById('kpi-year'),   yearSales,  '₩');
+  countUp(document.getElementById('kpi-recv'),   recv,       '₩');
+  document.getElementById('kpi-margin').textContent = marginPct + '%';
+  document.getElementById('kpi-low').textContent    = lowCount + '개';
+
+  // 월별 집계 (백만원)
+  const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  const salesM = Array(12).fill(0), marginM = Array(12).fill(0);
+  rows.forEach(r => {
+    const m = parseInt(r.date?.split('-')[1]||1) - 1;
+    salesM[m]  += (r.total_amount||0)  / 1_000_000;
+    marginM[m] += (r.margin_amount||0) / 1_000_000;
+  });
+
+  // 연도별 집계 (당해 이전 3년 + 당해)
+  const curY = year;
+  const years = [curY-3, curY-2, curY-1, curY].map(String);
+  const salesY = Array(4).fill(0), marginY = Array(4).fill(0);
+  const allOutYear = await dbQuery('stock_out',
+    `?date=gte.${curY-3}-01-01&select=date,total_amount,margin_amount`);
+  allOutYear.forEach(r => {
+    const yi = years.indexOf(r.date?.slice(0,4));
+    if(yi>=0) { salesY[yi]+=(r.total_amount||0)/1_000_000; marginY[yi]+=(r.margin_amount||0)/1_000_000; }
+  });
+
+  // 월별 차트 (그라데이션 막대 + 발광 스플라인)
+  Plotly.newPlot('chart-monthly', [
+    {type:'bar', x:months, y:Array(12).fill(0), name:'매출',
+     marker:{color:salesM,colorscale:BAR_CS,cmin:0,
+       line:{color:'rgba(120,180,255,0.35)',width:1}}, opacity:0.92,
+     hovertemplate:'<b>%{x}</b><br>매출: %{y:.1f}백만원<extra></extra>'},
+    {type:'scatter', x:months, y:Array(12).fill(0), name:'마진 글로우',
+     mode:'lines', line:{shape:'spline',color:'rgba(34,211,238,0.25)',width:8},
+     yaxis:'y2', hoverinfo:'skip', showlegend:false},
+    {type:'scatter', x:months, y:Array(12).fill(0), name:'마진',
+     mode:'lines+markers', line:{shape:'spline',color:AC[1],width:2.5},
+     marker:{size:6,color:'#a5f3fc',line:{color:AC[1],width:1.5}}, yaxis:'y2',
+     hovertemplate:'마진: %{y:.1f}백만원<extra></extra>'},
+  ], dsLayout({
+    yaxis2:{overlaying:'y',side:'right',showgrid:false,tickfont:{color:DIM}},
+    bargap:0.45, margin:{l:0,r:30,t:10,b:10},
+  }), {displayModeBar:false, responsive:true});
+  Plotly.addFrames('chart-monthly', [
+    {name:'0', data:[{y:Array(12).fill(0)},{y:Array(12).fill(0)},{y:Array(12).fill(0)}]},
+    {name:'1', data:[{y:salesM},{y:marginM},{y:marginM}]},
+  ]);
+  autoPlay('chart-monthly');
+
+  // 연도별 차트 (그라데이션 막대 + 발광 스플라인)
+  Plotly.newPlot('chart-yearly', [
+    {type:'bar', x:years, y:Array(4).fill(0), name:'매출',
+     marker:{color:salesY,colorscale:BAR_CS2,cmin:0,
+       line:{color:'rgba(150,140,255,0.35)',width:1}}, opacity:0.92,
+     hovertemplate:'<b>%{x}</b><br>매출: %{y:.0f}백만원<extra></extra>'},
+    {type:'scatter', x:years, y:Array(4).fill(0), name:'마진 글로우',
+     mode:'lines', line:{shape:'spline',color:'rgba(251,191,36,0.25)',width:8},
+     yaxis:'y2', hoverinfo:'skip', showlegend:false},
+    {type:'scatter', x:years, y:Array(4).fill(0), name:'마진',
+     mode:'lines+markers', line:{shape:'spline',color:AC[3],width:2.5},
+     marker:{size:7,color:'#fde68a',line:{color:AC[3],width:1.5}}, yaxis:'y2',
+     hovertemplate:'마진: %{y:.0f}백만원<extra></extra>'},
+  ], dsLayout({
+    yaxis2:{overlaying:'y',side:'right',showgrid:false,tickfont:{color:DIM}},
+    bargap:0.5, margin:{l:0,r:30,t:10,b:10},
+  }), {displayModeBar:false, responsive:true});
+  Plotly.addFrames('chart-yearly', [
+    {name:'0', data:[{y:Array(4).fill(0)},{y:Array(4).fill(0)},{y:Array(4).fill(0)}]},
+    {name:'1', data:[{y:salesY},{y:marginY},{y:marginY}]},
+  ]);
+  autoPlay('chart-yearly', 900);
+}
+
+// ── 수금 미수금 Donut (Supabase 실데이터) ─────────
+let recvPieDrawn = false;
+async function initRecvPie() {
+  if(recvPieDrawn) return;
+  recvPieDrawn = true;
+
+  // 거래처별 미수금 = 출고합계 - 수금합계
+  const [outs, pays, clients] = await Promise.all([
+    dbQuery('stock_out', '?select=client_id,total_amount'),
+    dbQuery('payments',  '?select=client_id,amount'),
+    dbQuery('clients',   '?select=id,name'),
+  ]);
+
+  const clientMap = {};
+  clients.forEach(c => { clientMap[c.id] = c.name; });
+
+  const outMap = {}, payMap = {};
+  outs.forEach(r => { outMap[r.client_id] = (outMap[r.client_id]||0) + (r.total_amount||0); });
+  pays.forEach(r => { payMap[r.client_id] = (payMap[r.client_id]||0) + (r.amount||0); });
+
+  const recvMap = {};
+  Object.keys(outMap).forEach(id => {
+    const bal = (outMap[id]||0) - (payMap[id]||0);
+    if(bal > 0) recvMap[id] = bal;
+  });
+
+  const labels = Object.keys(recvMap).map(id => clientMap[id]||'거래처'+id);
+  const values = Object.values(recvMap);
+
+  // 데이터 없으면 샘플
+  const useLabels = labels.length ? labels : ['데이터 없음'];
+  const useValues = values.length ? values : [1];
+  const pull      = useValues.map((_,i)=>i===0?0.05:0);
+
+  Plotly.newPlot('chart-recv-pie', [{
+    type:'pie', hole:0.55,
+    labels: useLabels, values: useValues,
+    marker:{colors:AC, line:{color:'rgba(0,0,0,0.3)',width:2}},
+    textinfo:'label+percent', textfont:{size:12,color:TEXT},
+    pull, direction:'clockwise', sort:true,
+    hovertemplate:'<b>%{label}</b><br>₩%{value:,.0f}<br>%{percent}<extra></extra>',
+  }], {
+    paper_bgcolor:BG, font:{family:FF,color:TEXT},
+    showlegend:true,
+    legend:{bgcolor:'rgba(0,0,0,0)',font:{color:DIM}},
+    margin:{l:20,r:20,t:20,b:20},
+    hoverlabel:{bgcolor:'#1E2D45',bordercolor:AC[0],font:{color:TEXT,size:13}},
+    annotations:[{text:'<b>미수금</b>',x:0.5,y:0.5,font:{size:13,color:DIM},showarrow:false}],
+  }, {displayModeBar:false, responsive:true});
+}
+
+// ── 의료장비 리포트 차트 ────────────────────────────
+async function initMedReport() {
+  let todayV=0, monthV=0, yearV=0, recvV=0;
+  let months=[], vals=[];
+  let payLabels=[], payVals=[];
+
+  try {
+    const year = TODAY.getFullYear();
+    const monthPad = String(TODAY.getMonth()+1).padStart(2,'0');
+    const [mrows, mpays] = await Promise.all([
+      dbQuery('med_stock_out', `?date=gte.${year}-01-01&select=date,total_amount,payment_method`),
+      dbQuery('med_payments',  `?select=amount`),
+    ]);
+    if(mrows && mrows.length > 0) {
+      const sum = (arr,k) => arr.reduce((s,r)=>s+(r[k]||0),0);
+      todayV = sum(mrows.filter(r=>r.date===fmt(TODAY)), 'total_amount');
+      monthV = sum(mrows.filter(r=>r.date?.startsWith(`${year}-${monthPad}`)), 'total_amount');
+      yearV  = sum(mrows, 'total_amount');
+      recvV  = Math.max(0, yearV - sum(mpays||[], 'amount'));
+      // 월별
+      const mMap = {};
+      mrows.forEach(r=>{ const k=r.date?.slice(0,7); mMap[k]=(mMap[k]||0)+(r.total_amount||0); });
+      months = Object.keys(mMap).sort(); vals = months.map(m=>mMap[m]);
+      // 결제방식별
+      const pMap = {};
+      mrows.forEach(r=>{ const k=r.payment_method||'기타'; pMap[k]=(pMap[k]||0)+(r.total_amount||0); });
+      payLabels = Object.keys(pMap); payVals = payLabels.map(k=>pMap[k]);
+    }
+  } catch(e) { /* med 테이블 미생성 */ }
+
+  // 병원별 납품 현황 테이블
+  try {
+    const hosp = await dbQuery('med_clients', '?select=id,hospital_name');
+    const [allOut, allPay] = await Promise.all([
+      dbQuery('med_stock_out', '?select=client_id,total_amount'),
+      dbQuery('med_payments',  '?select=client_id,amount'),
+    ]);
+    const outMap={}, payMap={};
+    (allOut||[]).forEach(r=>{ outMap[r.client_id]=(outMap[r.client_id]||0)+(r.total_amount||0); });
+    (allPay||[]).forEach(r=>{ payMap[r.client_id]=(payMap[r.client_id]||0)+(r.amount||0); });
+    const tbody = document.getElementById('med-report-tbody');
+    if(tbody) {
+      const rows = (hosp||[]).map(h=>{
+        const tot=outMap[h.id]||0, paid=payMap[h.id]||0, recv=Math.max(0,tot-paid);
+        const cnt = (allOut||[]).filter(r=>r.client_id===h.id).length;
+        return `<tr><td>${h.hospital_name}</td><td>${cnt}</td><td>${W(tot)}</td><td>${W(paid)}</td><td>${W(recv)}</td></tr>`;
+      });
+      tbody.innerHTML = rows.length ? rows.join('') : emptyRow(5,'납품 데이터가 없습니다');
+    }
+  } catch(e) {}
+
+  countUp(document.getElementById('med-kpi-today'), todayV, '₩');
+  countUp(document.getElementById('med-kpi-month'), monthV, '₩');
+  countUp(document.getElementById('med-kpi-year'),  yearV,  '₩');
+  countUp(document.getElementById('med-kpi-recv'),  recvV,  '₩');
+
+  if(months.length) {
+    Plotly.newPlot('med-chart-monthly',[
+      {type:'bar',x:months,y:Array(months.length).fill(0),name:'납품액',
+       marker:{color:vals,colorscale:BAR_CS,cmin:0,
+         line:{color:'rgba(120,180,255,0.35)',width:1}},opacity:0.92,
+       hovertemplate:'<b>%{x}</b><br>₩%{y:,.0f}<extra></extra>'},
+    ],dsLayout({bargap:0.45,margin:{l:0,r:0,t:10,b:10}}),{displayModeBar:false,responsive:true});
+    Plotly.addFrames('med-chart-monthly',[{name:'0',data:[{y:Array(months.length).fill(0)}]},{name:'1',data:[{y:vals}]}]);
+    autoPlay('med-chart-monthly');
+  } else {
+    document.getElementById('med-chart-monthly').innerHTML =
+      '<div style="height:260px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.3)">납품 데이터 없음</div>';
+  }
+
+  if(payLabels.length) {
+    Plotly.newPlot('med-chart-pay',[{
+      type:'pie',hole:0.55,labels:payLabels,values:payVals,
+      marker:{colors:AC,line:{color:'rgba(0,0,0,0.3)',width:2}},
+      textinfo:'label+percent',textfont:{size:12,color:TEXT},
+      pull:[0.04,...Array(payLabels.length-1).fill(0)],direction:'clockwise',sort:true,
+      hovertemplate:'<b>%{label}</b><br>₩%{value:,.0f}<extra></extra>',
+    }],{paper_bgcolor:BG,font:{family:FF,color:TEXT},showlegend:true,
+      legend:{bgcolor:'rgba(0,0,0,0)',font:{color:DIM}},margin:{l:20,r:20,t:10,b:10},
+      hoverlabel:{bgcolor:'#1E2D45',bordercolor:AC[0],font:{color:TEXT,size:13}},
+      annotations:[{text:'<b>결제</b>',x:0.5,y:0.5,font:{size:13,color:DIM},showarrow:false}],
+    },{displayModeBar:false,responsive:true});
+  } else {
+    document.getElementById('med-chart-pay').innerHTML =
+      '<div style="height:260px;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.3)">결제 데이터 없음</div>';
+  }
+}
+
+// ── 의료장비 영업관리 초기화 ─────────────────────
+async function initMedSales() {
+  document.querySelectorAll('#page-med-sales input[type=date]').forEach(el => el.value = fmt(TODAY));
+  const [sins, souts, hosps] = await Promise.all([
+    dbQuery('med_stock_in',  '?order=date.desc&limit=50'),
+    dbQuery('med_stock_out', '?order=date.desc&limit=50&select=date,client_id,product_name,manufacturer,is_purchased,payment_method,sale_price,commission'),
+    dbQuery('med_clients',   '?select=id,hospital_name'),
+  ]);
+  const hospMap = Object.fromEntries((hosps||[]).map(h=>[h.id,h.hospital_name]));
+  const inTb = document.getElementById('med-in-tbody');
+  if(inTb) inTb.innerHTML = (sins||[]).length ?
+    (sins||[]).map(r=>`<tr><td>${r.date||''}</td><td>${r.manufacturer||'—'}</td><td>${r.product_name||'—'}</td><td>${r.price_type||'—'}</td><td>${W(r.purchase_price)}</td><td>${r.serial_number||'—'}</td><td>${r.note||'—'}</td></tr>`).join('') : emptyRow(7,'매입 내역 없음');
+  const outTb = document.getElementById('med-out-tbody');
+  if(outTb) outTb.innerHTML = (souts||[]).length ?
+    (souts||[]).map(r=>`<tr><td>${r.date||''}</td><td>${hospMap[r.client_id]||'—'}</td><td>${r.product_name||'—'}</td><td>${r.manufacturer||'—'}</td><td>${r.is_purchased||'—'}</td><td>${r.payment_method||'—'}</td><td>${W(r.sale_price)}</td><td>${W(r.commission)}</td></tr>`).join('') : emptyRow(8,'납품 내역 없음');
+}
+
+// ── 의료장비 매입 등록 제출 ───────────────────────
+async function submitMedIn() {
+  const mfr=document.getElementById('med-in-mfr')?.value?.trim();
+  const prod=document.getElementById('med-in-prod')?.value?.trim();
+  if(!mfr||!prod){ showToast('장비사와 장비명을 입력하세요'); return; }
+  const body={date:document.getElementById('med-in-date')?.value,manufacturer:mfr,product_name:prod,
+    price_type:document.querySelector('[name="med-in-type"]')?.value||'직납',
+    purchase_price:parseInt(document.getElementById('med-in-price')?.value||0),
+    serial_number:document.getElementById('med-in-serial')?.value||null,
+    note:document.getElementById('med-in-note')?.value||null};
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/med_stock_in`,{method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify(body)});
+  if(res.ok||res.status===201){showToast('매입 등록 완료');initMedSales();}
+  else showToast('등록 실패 (med_stock_in 테이블 확인 필요)');
+}
+
+// ── 의료장비 납품 행 추가/삭제 ───────────────────
+function addMedRow(){
+  const tbody=document.getElementById('med-out-rows'); if(!tbody)return;
+  const tr=document.createElement('tr');
+  tr.innerHTML=`<td><input type="text" class="form-control" placeholder="장비명" style="min-width:100px"></td><td><input type="text" class="form-control" placeholder="장비사" style="min-width:80px"></td><td><input type="number" class="form-control" placeholder="0" style="min-width:90px" step="100000"></td><td><input type="number" class="form-control" placeholder="0" style="min-width:70px" step="10000"></td><td><input type="text" class="form-control" placeholder="SN-XXXXX" style="min-width:80px"></td><td><select class="form-control" style="min-width:70px"><option>매입</option><option>위탁</option></select></td><td><select class="form-control" style="min-width:70px"><option>현금</option><option>카드</option><option>리스</option></select></td><td><input type="text" class="form-control" placeholder="비고" style="min-width:70px"></td><td><button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="removeMedRow(this)">삭제</button></td>`;
+  tbody.appendChild(tr);
+}
+function removeMedRow(btn){btn.closest('tr').remove();}
+
+// ── 의료장비 납품 등록 제출 ───────────────────────
+async function submitMedOut(){
+  const hosp=document.getElementById('med-out-hosp')?.value?.trim();
+  const date=document.getElementById('med-out-date')?.value;
+  if(!hosp){showToast('병원명을 입력하세요');return;}
+  const rows=[...document.querySelectorAll('#med-out-rows tr')].map(tr=>{
+    const f=tr.querySelectorAll('input,select');
+    return{product_name:f[0]?.value?.trim(),manufacturer:f[1]?.value?.trim(),
+      sale_price:parseInt(f[2]?.value||0),commission:parseInt(f[3]?.value||0),
+      serial_number:f[4]?.value||null,is_purchased:f[5]?.value||'매입',
+      payment_method:f[6]?.value||'현금',note:f[7]?.value||null};
+  }).filter(r=>r.product_name);
+  if(!rows.length){showToast('장비명을 1개 이상 입력하세요');return;}
+  let hosps=await dbQuery('med_clients',`?hospital_name=eq.${encodeURIComponent(hosp)}&select=id`);
+  let cid=hosps?.[0]?.id||null;
+  if(!cid){const r=await fetch(`${SUPABASE_URL}/rest/v1/med_clients`,{method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=representation'},
+    body:JSON.stringify({hospital_name:hosp})});
+    if(r.ok||r.status===201){const d=await r.json();cid=d?.[0]?.id;}}
+  if(!cid){showToast('거래처 등록 실패');return;}
+  for(const row of rows){
+    const sp=row.sale_price,supply=sp>0?Math.round(sp/1.1):0;
+    await fetch(`${SUPABASE_URL}/rest/v1/med_stock_out`,{method:'POST',
+      headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+      body:JSON.stringify({date,client_id:cid,...row,supply_amount:supply,vat_amount:sp-supply,total_amount:sp})});
+  }
+  showToast(`납품 등록 완료 — ${hosp} ${rows.length}건`);initMedSales();
+}
+
+// ── 의료장비 수금 등록 제출 ───────────────────────
+async function submitMedPay(){
+  const sel=document.getElementById('med-pay-client');const cid=sel?.value;
+  if(!cid){showToast('병원을 선택하세요');return;}
+  const amount=parseInt(document.getElementById('med-pay-amount')?.value||0);
+  if(!amount){showToast('수금액을 입력하세요');return;}
+  const body={date:document.getElementById('med-pay-date')?.value,client_id:parseInt(cid),amount,
+    payment_method:document.querySelector('[name="med-pay-type"]')?.value||'현금',
+    note:document.getElementById('med-pay-note')?.value||null};
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/med_payments`,{method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify(body)});
+  if(res.ok||res.status===201){showToast('수금 등록 완료');initMedRecv();}
+  else showToast('수금 등록 실패');
+}
+
+// ── 의료장비 장비 등록 제출 ───────────────────────
+async function submitMedProd(){
+  const name=document.getElementById('med-prod-name')?.value?.trim();
+  const mfr=document.getElementById('med-prod-mfr')?.value?.trim();
+  if(!name||!mfr){showToast('장비명과 장비사를 입력하세요');return;}
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/med_products`,{method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+    body:JSON.stringify({name,manufacturer:mfr,spec:document.getElementById('med-prod-spec')?.value||null})});
+  if(res.ok||res.status===201){showToast('장비 등록 완료');initMedMaster();}
+  else showToast('등록 실패 (med_products 테이블 확인 필요)');
+}
+
+// ── 의료장비 거래처 등록 제출 ────────────────────
+async function submitMedClient(){
+  const name=document.getElementById('med-cli-name')?.value?.trim();
+  if(!name){showToast('병원명을 입력하세요');return;}
+  const body={hospital_name:name,
+    ceo_name:document.getElementById('med-cli-ceo')?.value||null,
+    contact_person:document.getElementById('med-cli-contact')?.value||null,
+    phone:document.getElementById('med-cli-phone')?.value||null,
+    address:document.getElementById('med-cli-addr')?.value||null,
+    credit_limit:parseInt(document.getElementById('med-cli-credit')?.value||0)};
+  const res=await fetch(`${SUPABASE_URL}/rest/v1/med_clients`,{method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify(body)});
+  if(res.ok||res.status===201){showToast('거래처 등록 완료');initMedMaster();}
+  else showToast('등록 실패 (med_clients 테이블 확인 필요)');
+}
+
+// ── 의료장비 수금현황 초기화 ──────────────────────
+async function initMedRecv() {
+  document.querySelectorAll('#page-med-recv input[type=date]').forEach(el => el.value = fmt(TODAY));
+  const [hosps, outs, pays, leases] = await Promise.all([
+    dbQuery('med_clients',  '?order=hospital_name'),
+    dbQuery('med_stock_out','?select=client_id,total_amount'),
+    dbQuery('med_payments', '?select=client_id,amount'),
+    dbQuery('med_stock_out','?payment_method=eq.리스&order=date.desc&select=date,client_id,product_name,total_amount,note'),
+  ]);
+  const hospMap = Object.fromEntries((hosps||[]).map(h=>[h.id,h.hospital_name]));
+
+  // 병원 select 채우기
+  const hospOpts = (hosps||[]).map(h=>`<option value="${h.id}">${h.hospital_name}</option>`).join('');
+  ['med-pay-client','med-ledger-client'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">병원 선택</option>' + hospOpts;
+  });
+
+  // 미수금 집계
+  const outMap={}, payMap={};
+  (outs||[]).forEach(r=>{ outMap[r.client_id]=(outMap[r.client_id]||0)+(r.total_amount||0); });
+  (pays||[]).forEach(r=>{ payMap[r.client_id]=(payMap[r.client_id]||0)+(r.amount||0); });
+
+  const totalRecv = Object.keys(outMap).reduce((s,id)=>s+Math.max(0,(outMap[id]||0)-(payMap[id]||0)),0);
+  const kpiEl = document.getElementById('med-recv-kpi-total');
+  if(kpiEl) kpiEl.textContent = W(totalRecv);
+
+  // 병원별 미수금 테이블
+  const tbody = document.getElementById('med-recv-list-tbody');
+  if(tbody) {
+    if(!(hosps||[]).length) { tbody.innerHTML = emptyRow(5,'납품 데이터가 없습니다'); }
+    else {
+      const rows = (hosps||[]).filter(h=>outMap[h.id]||payMap[h.id]).map(h=>{
+        const tot=outMap[h.id]||0, paid=payMap[h.id]||0, recv=Math.max(0,tot-paid);
+        const rate=tot>0?Math.round(paid/tot*100):100;
+        const bg=rate>=100?'#22C55E':rate>=70?'#F59E0B':'#EF4444';
+        const badge=recv===0?'badge-green':rate>=70?'badge-amber':'badge-red';
+        return `<tr><td>${h.hospital_name}</td><td>${W(tot)}</td><td>${W(paid)}</td>
+          <td><span class="badge ${badge}">${W(recv)}</span></td>
+          <td><div class="progress-wrap"><div class="progress-bar" style="width:${rate}%;background:${bg}"></div></div>
+          <span style="font-size:11px;color:#64748b;margin-left:6px">${rate}%</span></td></tr>`;
+      });
+      tbody.innerHTML = rows.length ? rows.join('') : emptyRow(5,'납품 내역 없음');
+    }
+  }
+
+  // 리스 납품 현황 테이블
+  const leaseTb = document.getElementById('med-recv-lease-tbody');
+  if(leaseTb) {
+    leaseTb.innerHTML = (leases||[]).length ?
+      (leases||[]).map(r=>`<tr><td>${r.date||''}</td><td>${hospMap[r.client_id]||'—'}</td><td>${r.product_name||'—'}</td><td>${W(r.total_amount)}</td><td>${r.note||'—'}</td></tr>`).join('') :
+      emptyRow(5,'리스 납품 건 없음');
+  }
+}
+
+// ── 의료장비 수금 등록 — 병원 선택 시 미수금 표시 ──
+async function onMedPayClientChange(sel) {
+  const id = sel.value;
+  const el = document.getElementById('med-pay-recv-info');
+  if(!el||!id){ if(el) el.innerHTML='병원을 선택하면 미수금이 표시됩니다.'; return; }
+  const [outs,pays] = await Promise.all([
+    dbQuery('med_stock_out',`?client_id=eq.${id}&select=total_amount`),
+    dbQuery('med_payments', `?client_id=eq.${id}&select=amount`),
+  ]);
+  const recv = Math.max(0,
+    (outs||[]).reduce((s,r)=>s+(r.total_amount||0),0) -
+    (pays||[]).reduce((s,r)=>s+(r.amount||0),0));
+  el.innerHTML = recv>0 ? `현재 미수금: <b>${W(recv)}</b>` : '현재 미수금: <b>없음</b>';
+}
+
+// ── 의료장비 병원 원장 로드 ──────────────────────
+async function loadMedLedger(clientId) {
+  const tbody = document.getElementById('med-ledger-tbody');
+  const balEl = document.getElementById('med-ledger-balance');
+  if(!tbody||!clientId){ if(tbody) tbody.innerHTML=emptyRow(4,'병원을 선택하세요'); if(balEl) balEl.innerHTML=''; return; }
+  const [outs,pays] = await Promise.all([
+    dbQuery('med_stock_out',`?client_id=eq.${clientId}&order=date&select=date,total_amount`),
+    dbQuery('med_payments', `?client_id=eq.${clientId}&order=date&select=date,amount`),
+  ]);
+  const rows = [
+    ...(outs||[]).map(r=>({date:r.date,type:'out',amount:r.total_amount})),
+    ...(pays||[]).map(r=>({date:r.date,type:'pay',amount:r.amount})),
+  ].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  tbody.innerHTML = rows.length ? rows.map(r => r.type==='out'
+    ? `<tr><td>${r.date}</td><td><span class="badge badge-blue">납품</span></td><td>${W(r.amount)}</td><td>—</td></tr>`
+    : `<tr><td>${r.date}</td><td><span class="badge badge-green">수금</span></td><td>—</td><td>${W(r.amount)}</td></tr>`
+  ).join('') : emptyRow(4,'거래내역이 없습니다');
+  let bal=0; rows.forEach(r=>{ bal += r.type==='out'?(r.amount||0):-(r.amount||0); });
+  if(balEl) balEl.innerHTML = `잔액(미수금): <b>${W(Math.max(0,bal))}</b>`;
+}
+
+// ── 의료장비 기초관리 초기화 ──────────────────────
+async function initMedMaster() {
+  refreshTemplateStatus();
+  const [prods, clients] = await Promise.all([
+    dbQuery('med_products','?order=name&select=id,name,manufacturer,spec'),
+    dbQuery('med_clients', '?order=hospital_name&select=id,hospital_name,ceo_name,contact_person,phone,address,credit_limit'),
+  ]);
+
+  // 장비 테이블
+  const prodTb = document.getElementById('med-prod-tbody');
+  if(prodTb) prodTb.innerHTML = (prods||[]).length ?
+    (prods||[]).map(p=>`<tr><td>${p.id||'—'}</td><td>${p.name}</td><td>${p.manufacturer||'—'}</td><td>${p.spec||'—'}</td></tr>`).join('') :
+    emptyRow(4,'등록된 장비 없음');
+
+  // 거래처 테이블
+  const cliTb = document.getElementById('med-client-tbody');
+  if(cliTb) cliTb.innerHTML = (clients||[]).length ?
+    (clients||[]).map(c=>`<tr><td>${c.id||'—'}</td><td>${c.hospital_name}</td><td>${c.ceo_name||'—'}</td><td>${c.contact_person||'—'}</td><td>${c.phone||'—'}</td><td>${c.address||'—'}</td><td>${W(c.credit_limit)}</td></tr>`).join('') :
+    emptyRow(7,'등록된 거래처 없음');
+
+  // 문서함 병원 select
+  const docSel = document.getElementById('doc-hosp-sel');
+  if(docSel) docSel.innerHTML = '<option value="">병원 선택</option>' +
+    (clients||[]).map(c=>`<option value="${c.id}">${c.hospital_name}</option>`).join('');
+
+  // 문서 목록
+  const docTb = document.getElementById('med-docs-tbody');
+  if(docTb) {
+    const docs = await dbQuery('med_contracts','?order=uploaded_at.desc&select=id,client_id,file_name,file_type,uploaded_at');
+    const hMap = Object.fromEntries((clients||[]).map(c=>[c.id,c.hospital_name]));
+    docTb.innerHTML = (docs||[]).length ?
+      (docs||[]).map(d=>`<tr><td>${hMap[d.client_id]||'—'}</td><td>${d.file_name||'—'}</td><td>${d.file_type||'—'}</td><td>${d.uploaded_at||'—'}</td><td>—</td></tr>`).join('') :
+      emptyRow(5,'업로드된 문서 없음');
+  }
+}
+
+// ══════════════════════════════════════════════════
+// ── 전역 캐시 ────────────────────────────────────
+// ══════════════════════════════════════════════════
+const G = { products: [], clients: [], stockMap: {} };
+const W = s => '₩' + Number(s||0).toLocaleString();
+const emptyRow = (cols, msg='데이터 없음') =>
+  `<tr><td colspan="${cols}" style="text-align:center;color:rgba(255,255,255,.3);padding:20px">${msg}</td></tr>`;
+
+// ── 앱 시작 시 마스터 데이터 로드 ────────────────
+async function loadMasterData() {
+  const [prods, clients, sins] = await Promise.all([
+    dbQuery('products', '?order=name'),
+    dbQuery('clients',  '?order=name'),
+    dbQuery('stock_in', '?select=product_id,remaining_qty'),
+  ]);
+  G.products = prods || [];
+  G.clients  = clients || [];
+
+  // 제품별 현재고 집계
+  G.stockMap = {};
+  (sins||[]).forEach(r => {
+    G.stockMap[r.product_id] = (G.stockMap[r.product_id]||0) + (r.remaining_qty||0);
+  });
+
+  // 모든 제품 select 채우기
+  const prodOpts = G.products.map(p =>
+    `<option value="${p.id}" data-price="${p.purchase_price}" data-sale="${p.sale_price||p.settlement_price||0}">${p.name}</option>`).join('');
+  ['in-prod','out-prod'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.innerHTML = '<option value="">선택</option>' + prodOpts;
+  });
+
+  // 모든 거래처 select 채우기
+  const clientOpts = G.clients.map(c =>
+    `<option value="${c.id}" data-disc="${c.discount_rate}" data-cat="${c.category||''}">${c.name}</option>`).join('');
+  ['out-client','pay-client','ledger-client','edit-client-filter'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) {
+      el.innerHTML = (id==='edit-client-filter' ? '<option value="">전체</option>' : '<option value="">선택</option>') + clientOpts;
+    }
+  });
+}
+
+// ── 영업관리 페이지 초기화 ───────────────────────
+async function initStockPage() {
+  // 입고 내역
+  const sins = await dbQuery('stock_in',
+    '?order=date.desc&limit=50&select=id,date,product_id,quantity,purchase_price,remaining_qty,lot_number,expiry_date');
+  const prodMap = Object.fromEntries(G.products.map(p=>[p.id,p.name]));
+  const inTbody = document.getElementById('stock-in-tbody');
+  if(inTbody) {
+    if(!sins.length) { inTbody.innerHTML = emptyRow(9); }
+    else inTbody.innerHTML = sins.map(r => `<tr>
+      <td><input type="checkbox" data-id="${r.id}"></td>
+      <td>${r.date||''}</td>
+      <td>${prodMap[r.product_id]||r.product_id}</td>
+      <td><span class="badge badge-blue">${r.lot_number||'—'}</span></td>
+      <td>${r.quantity||0}</td>
+      <td>${W(r.purchase_price)}</td>
+      <td>${W((r.quantity||0)*(r.purchase_price||0))}</td>
+      <td>${r.remaining_qty??'—'}</td>
+      <td>${r.expiry_date||'—'}</td>
+    </tr>`).join('');
+  }
+
+  // 출고 내역
+  const souts = await dbQuery('stock_out',
+    '?order=date.desc&limit=50&select=date,client_id,product_id,quantity,supply_amount,total_amount,margin_rate');
+  const clientMap = Object.fromEntries(G.clients.map(c=>[c.id,c.name]));
+  const outTbody = document.getElementById('stock-out-tbody');
+  if(outTbody) {
+    if(!souts.length) { outTbody.innerHTML = emptyRow(7); return; }
+    outTbody.innerHTML = souts.map(r => {
+      const mr = parseFloat(r.margin_rate||0).toFixed(1);
+      const cls = mr>=20?'badge-green':mr>=10?'badge-amber':'badge-red';
+      return `<tr>
+        <td>${r.date||''}</td>
+        <td>${clientMap[r.client_id]||'—'}</td>
+        <td>${prodMap[r.product_id]||'—'}</td>
+        <td>${r.quantity||0}</td>
+        <td>${W(r.supply_amount)}</td>
+        <td>${W(r.total_amount)}</td>
+        <td><span class="badge ${cls}">${mr}%</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  // 출고 수정 내역
+  const editTbody = document.getElementById('stock-edit-tbody');
+  if(editTbody) {
+    editTbody.innerHTML = souts.map(r => `<tr>
+      <td><input type="radio" name="edit-sel" value="${r.id}"></td>
+      <td>${r.date||''}</td>
+      <td>${clientMap[r.client_id]||'—'}</td>
+      <td>${prodMap[r.product_id]||'—'}</td>
+      <td>${r.quantity||0}</td>
+      <td>${W(r.supply_amount)}</td>
+    </tr>`).join('') || emptyRow(6);
+  }
+}
+
+// ── 수금현황 페이지 초기화 ───────────────────────
+async function initRecvPage() {
+  const [outs, pays] = await Promise.all([
+    dbQuery('stock_out', '?select=client_id,total_amount'),
+    dbQuery('payments',  '?select=client_id,amount'),
+  ]);
+  const clientMap = Object.fromEntries(G.clients.map(c=>[c.id,c]));
+
+  // 거래처별 집계
+  const outMap={}, payMap={};
+  outs.forEach(r=>{ outMap[r.client_id]=(outMap[r.client_id]||0)+(r.total_amount||0); });
+  pays.forEach(r=>{ payMap[r.client_id]=(payMap[r.client_id]||0)+(r.amount||0); });
+
+  // 전체 미수금 KPI
+  const totalRecv = Object.keys(outMap).reduce((s,id)=>s+Math.max(0,(outMap[id]||0)-(payMap[id]||0)),0);
+  const kpiEl = document.getElementById('recv-kpi-total');
+  if(kpiEl) kpiEl.textContent = W(totalRecv);
+
+  // 거래처별 미수금 테이블
+  const tbody = document.getElementById('recv-list-tbody');
+  if(tbody) {
+    const rows = G.clients.map(c => {
+      const tot = outMap[c.id]||0;
+      const paid = payMap[c.id]||0;
+      const recv = Math.max(0, tot-paid);
+      const rate = tot>0 ? Math.round(paid/tot*100) : 100;
+      const bg = rate>=100?'#22C55E':rate>=70?'#F59E0B':'#EF4444';
+      const badge = recv===0?'badge-green':rate>=70?'badge-amber':'badge-red';
+      return `<tr>
+        <td>${c.name}</td>
+        <td>${W(tot)}</td>
+        <td>${W(paid)}</td>
+        <td><span class="badge ${badge}">${W(recv)}</span></td>
+        <td>
+          <div class="progress-wrap"><div class="progress-bar" style="width:${rate}%;background:${bg}"></div></div>
+          <span style="font-size:11px;color:#64748b;margin-left:6px">${rate}%</span>
+        </td>
+      </tr>`;
+    }).filter((_,i)=>outMap[G.clients[i]?.id]||payMap[G.clients[i]?.id]);
+    tbody.innerHTML = rows.length ? rows.join('') : emptyRow(5, '출고 내역이 없습니다');
+  }
+}
+
+// ── 거래처 원장 로드 ─────────────────────────────
+let _ledgerClient = '';
+async function loadLedger(clientId) {
+  _ledgerClient = clientId;
+  const tbody = document.getElementById('ledger-tbody');
+  if(!tbody || !clientId) { if(tbody) tbody.innerHTML = emptyRow(5,'거래처를 선택하세요'); return; }
+
+  const [outs, pays] = await Promise.all([
+    dbQuery('stock_out', `?client_id=eq.${clientId}&order=date&select=date,total_amount`),
+    dbQuery('payments',  `?client_id=eq.${clientId}&order=date&select=id,date,amount,note`),
+  ]);
+
+  // 날짜 기준 합치기
+  const rows = [
+    ...outs.map(r=>({date:r.date, type:'out', amount:r.total_amount})),
+    ...pays.map(r=>({date:r.date, type:'pay', amount:r.amount, id:r.id})),
+  ].sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+
+  if(!rows.length){ tbody.innerHTML = emptyRow(5,'거래내역이 없습니다'); return; }
+  tbody.innerHTML = rows.map(r => r.type==='out' ? `<tr>
+    <td>${r.date||''}</td>
+    <td><span class="badge badge-blue">출고</span></td>
+    <td>${W(r.amount)}</td><td>—</td>
+    <td style="color:rgba(255,255,255,.3);font-size:12px">출고수정 탭</td>
+  </tr>` : `<tr>
+    <td><input type="date" class="form-control" style="width:150px" value="${r.date||''}" id="pay-date-${r.id}"></td>
+    <td><span class="badge badge-green">수금</span></td>
+    <td>—</td>
+    <td><input type="number" class="form-control" style="width:120px" step="10000" value="${r.amount||0}" id="pay-amt-${r.id}"></td>
+    <td><div style="display:flex;gap:6px">
+      <button class="btn btn-primary" style="padding:5px 10px;font-size:12px" onclick="savePayment(${r.id})">저장</button>
+      <button class="btn btn-danger" style="padding:5px 10px;font-size:12px" onclick="deletePayment(${r.id})">삭제</button>
+    </div></td>
+  </tr>`).join('');
+}
+
+// 수금 내역 수정
+async function savePayment(id) {
+  const date = document.getElementById('pay-date-'+id)?.value;
+  const amount = parseInt(document.getElementById('pay-amt-'+id)?.value)||0;
+  if(!date){ showToast('수금일을 입력하세요'); return; }
+  if(!amount){ showToast('수금액을 입력하세요'); return; }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${id}`,{method:'PATCH',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+    body: JSON.stringify({date, amount})});
+  if(res.ok || res.status===204 || res.status===200){ showToast('수금 내역 수정 완료'); loadLedger(_ledgerClient); initRecvPage(); }
+  else showToast('수정 실패');
+}
+
+// 수금 내역 삭제
+async function deletePayment(id) {
+  if(!confirm('이 수금 내역을 삭제할까요?\n삭제하면 되돌릴 수 없으며 미수금이 다시 늘어납니다.')) return;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/payments?id=eq.${id}`,{method:'DELETE',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Prefer':'return=minimal'}});
+  if(res.ok || res.status===204 || res.status===200){ showToast('수금 내역이 삭제되었습니다'); loadLedger(_ledgerClient); initRecvPage(); }
+  else showToast('삭제 실패');
+}
+
+// ── 수금 등록 (실제 저장) ────────────────────────
+async function submitPayment() {
+  const cid = document.getElementById('pay-client')?.value;
+  const date = document.getElementById('pay-date')?.value || fmt(TODAY);
+  const amount = parseInt(document.getElementById('pay-amount')?.value)||0;
+  const note = document.getElementById('pay-note')?.value || null;
+  if(!cid){ showToast('거래처를 선택하세요'); return; }
+  if(!amount){ showToast('수금액을 입력하세요'); return; }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/payments`,{method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+    body: JSON.stringify({date, client_id:parseInt(cid), amount, note})});
+  if(res.ok || res.status===201){
+    showToast(`수금 등록 완료 — ${W(amount)}`);
+    // 입력 초기화 + 화면 갱신
+    document.getElementById('pay-amount').value='';
+    document.getElementById('pay-note').value='';
+    onPayClientChange(document.getElementById('pay-client')); // 미수금 갱신
+    initRecvPage();
+    // 같은 거래처가 원장에 열려있으면 갱신
+    if(_ledgerClient===cid) loadLedger(cid);
+  } else showToast('수금 등록 실패');
+}
+
+// ── 수금 등록 거래처 변경 시 미수금 표시 ─────────
+async function onPayClientChange(sel) {
+  const id = sel.value;
+  const el = document.getElementById('pay-recv-info');
+  if(!el || !id) { if(el) el.innerHTML='거래처를 선택하면 미수금이 표시됩니다.'; return; }
+  const [outs,pays] = await Promise.all([
+    dbQuery('stock_out',`?client_id=eq.${id}&select=total_amount`),
+    dbQuery('payments', `?client_id=eq.${id}&select=amount`),
+  ]);
+  const recv = Math.max(0,
+    outs.reduce((s,r)=>s+(r.total_amount||0),0) -
+    pays.reduce((s,r)=>s+(r.amount||0),0));
+  el.innerHTML = `현재 미수금: <b>${W(recv)}</b>`;
+}
+
+// ── 기초관리 페이지 초기화 ───────────────────────
+async function initMasterPage() {
+  // 제품군 목록 (드롭다운 + 직접입력 겸용 datalist)
+  const groups = [...new Set(G.products.map(p=>p.product_group).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const dl = document.getElementById('prod-group-list');
+  if(dl) dl.innerHTML = groups.map(g=>`<option value="${g}"></option>`).join('');
+
+  // 제품 테이블
+  const prodTbody = document.getElementById('master-prod-tbody');
+  if(prodTbody) {
+    prodTbody.innerHTML = G.products.length ? G.products.map(p => {
+      const stock = G.stockMap[p.id]||0;
+      const badge = stock<=0?'badge-red':stock<=(p.min_stock||0)?'badge-amber':'badge-green';
+      return `<tr>
+        <td>${p.name}</td>
+        <td>${p.product_group||'—'}</td>
+        <td>${p.spec||'—'}</td>
+        <td>${W(p.purchase_price)}</td>
+        <td>${W(p.sale_price)}</td>
+        <td>${p.min_stock||0}</td>
+        <td><span class="badge ${badge}">${stock}</span></td>
+        <td>${p.bundle_with_id?'연동':'—'}</td>
+      </tr>`;
+    }).join('') : emptyRow(8);
+  }
+
+  // 거래처 테이블
+  const clientTbody = document.getElementById('master-client-tbody');
+  if(clientTbody) {
+    clientTbody.innerHTML = G.clients.length ? G.clients.map(c => `<tr>
+      <td>${c.id}</td>
+      <td>${c.name}</td>
+      <td>${c.category||'—'}</td>
+      <td>${c.contact||'—'}</td>
+      <td>${Math.round((c.discount_rate||0)*100)}%</td>
+    </tr>`).join('') : emptyRow(5);
+  }
+}
+
+// ── 거래처 변경 시 할인율 표시 + 출고가 재계산 ────
+function onClientChange() {
+  const sel = document.getElementById('out-client');
+  const opt = sel?.selectedOptions[0];
+  const info = document.getElementById('client-info');
+  if(info) {
+    if(opt?.value) {
+      const cat = opt.dataset.cat||'';
+      const disc = Math.round((parseFloat(opt.dataset.disc)||0)*100);
+      info.innerHTML = `[${cat||opt.text}] 할인율: <b>${disc}%</b>`;
+    } else {
+      info.innerHTML = '거래처를 선택하세요';
+    }
+  }
+  recalcOutPrice();
+}
+
+// ── 출고 품목 변경 → Lot 목록 로드 + 출고가 재계산 ─
+async function onOutProdChange() {
+  await loadOutLots();
+  recalcOutPrice();
+}
+async function loadOutLots() {
+  const pid = document.getElementById('out-prod')?.value;
+  const sel = document.getElementById('out-lot');
+  if(!sel) return;
+  if(!pid){ sel.innerHTML = '<option value="auto">자동 (FIFO · 선입선출)</option>'; return; }
+  const lots = await dbQuery('stock_in',
+    `?product_id=eq.${pid}&remaining_qty=gt.0&order=date&select=id,lot_number,remaining_qty,purchase_price,expiry_date`);
+  const totalRem = (lots||[]).reduce((s,l)=>s+(l.remaining_qty||0),0);
+  let html = `<option value="auto">자동 (FIFO · 잔여 ${totalRem})</option>`;
+  html += (lots||[]).map(l=>
+    `<option value="${l.id}" data-cost="${l.purchase_price}" data-rem="${l.remaining_qty}">${l.lot_number||('#'+l.id)} · 잔여 ${l.remaining_qty} · 입고가 ${W(l.purchase_price)}${l.expiry_date?(' · ~'+l.expiry_date):''}</option>`
+  ).join('');
+  sel.innerHTML = html;
+}
+
+// ── 출고가(단가) 자동 계산: 납품가×(1-할인율) ─────
+function recalcOutPrice() {
+  const popt = document.getElementById('out-prod')?.selectedOptions[0];
+  const copt = document.getElementById('out-client')?.selectedOptions[0];
+  const priceEl = document.getElementById('out-price');
+  if(!priceEl || !popt?.value) return;
+  const sale = parseFloat(popt.dataset.sale)||0;
+  const disc = parseFloat(copt?.dataset.disc)||0;
+  priceEl.value = Math.round(sale*(1-disc));
+  const info = document.getElementById('out-price-info');
+  if(info) info.innerHTML = `자동 계산: 납품가 ${W(sale)} × (1−${Math.round(disc*100)}%) = <b>${W(Math.round(sale*(1-disc)))}</b> · 프로모션 시 직접 수정`;
+}
+
+// ── 출고 카트 (복수 품목) ─────────────────────────
+let outCart = [];
+function addOutItem() {
+  const cid = document.getElementById('out-client')?.value;
+  const pSel = document.getElementById('out-prod');
+  const pid = pSel?.value;
+  const qty = parseInt(document.getElementById('out-qty')?.value)||0;
+  const unit = parseInt(document.getElementById('out-price')?.value)||0;
+  const lotSel = document.getElementById('out-lot');
+  const lotVal = lotSel?.value || 'auto';
+  if(!cid){ showToast('거래처를 먼저 선택하세요'); return; }
+  if(!pid){ showToast('품목을 선택하세요'); return; }
+  if(!qty){ showToast('수량을 입력하세요'); return; }
+  if(!unit){ showToast('출고가를 입력하세요'); return; }
+  const lotLabel = lotVal==='auto' ? '자동(FIFO)' : (lotSel.selectedOptions[0]?.text.split(' · ')[0] || lotVal);
+  outCart.push({productId:pid, name:pSel.selectedOptions[0].text, qty, unit, lotVal, lotLabel, sub:unit*qty});
+  renderOutCart();
+  showToast('목록에 추가됐습니다');
+}
+function renderOutCart() {
+  const tbody = document.getElementById('out-cart-body');
+  if(!tbody) return;
+  tbody.innerHTML = '';
+  let total = 0;
+  outCart.forEach((it,i)=>{
+    total += it.sub;
+    tbody.innerHTML += `<tr>
+      <td>${i+1}</td><td>${it.name}</td>
+      <td><span class="badge badge-blue">${it.lotLabel}</span></td>
+      <td>${it.qty}</td><td>₩${it.unit.toLocaleString()}</td><td>₩${it.sub.toLocaleString()}</td>
+      <td><button class="btn btn-danger" style="padding:3px 8px;font-size:11px" onclick="removeOutItem(${i})">삭제</button></td>
+    </tr>`;
+  });
+  document.getElementById('out-cart-section').style.display = outCart.length?'block':'none';
+  document.getElementById('out-cart-total').textContent = '합계 출고금액: ₩'+total.toLocaleString();
+}
+function removeOutItem(i){ outCart.splice(i,1); renderOutCart(); }
+function clearOutCart(){ outCart=[]; renderOutCart(); }
+
+// 단일 출고 품목 처리 (재고 fetch→차감→stock_out insert)
+async function _processOutItem(cid, date, type, disc, item) {
+  const pid = item.productId, qty = item.qty, unit = item.unit, lotVal = item.lotVal;
+  const lots = await dbQuery('stock_in',
+    `?product_id=eq.${pid}&remaining_qty=gt.0&order=date&select=id,lot_number,remaining_qty,purchase_price`);
+  let plan = [];
+  if(lotVal==='auto'){
+    let need = qty;
+    for(const l of (lots||[])){ if(need<=0)break; const take=Math.min(need,l.remaining_qty); plan.push({id:l.id,take,cost:l.purchase_price,lot:l.lot_number}); need-=take; }
+    if(need>0) return {ok:false, msg:`${item.name} 재고부족`};
+  } else {
+    const l = (lots||[]).find(x=>String(x.id)===String(lotVal));
+    if(!l) return {ok:false, msg:`${item.name} Lot없음`};
+    if((l.remaining_qty||0) < qty) return {ok:false, msg:`${item.name} Lot잔여부족`};
+    plan.push({id:l.id, take:qty, cost:l.purchase_price, lot:l.lot_number});
+  }
+  const costSum = plan.reduce((s,p)=>s+p.cost*p.take,0);
+  const unitCost = Math.round(costSum/qty);
+  const total = unit*qty, supply = Math.round(total/1.1), vat = total - supply;
+  const margin = total - costSum, marginRate = total>0 ? Math.round(margin/total*10000)/100 : 0;
+  const lotLabel = plan.map(p=>p.lot||('#'+p.id)).join(',');
+  const fullNote = 'Lot: ' + lotLabel + (item.note?(' / '+item.note):'');
+  const body = { date, client_id:parseInt(cid), product_id:parseInt(pid), type, quantity:qty, discount_rate:disc,
+    supply_amount:supply, vat_amount:vat, total_amount:total, fifo_purchase_price:unitCost,
+    margin_amount:margin, margin_rate:marginRate, note:fullNote };
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/stock_out`,{method:'POST',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+    body: JSON.stringify(body)});
+  if(!(res.ok||res.status===201)) return {ok:false, msg:`${item.name} 저장실패`};
+  if(type==='출고'){
+    for(const p of plan){
+      const l = lots.find(x=>x.id===p.id);
+      await fetch(`${SUPABASE_URL}/rest/v1/stock_in?id=eq.${p.id}`,{method:'PATCH',
+        headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+        body: JSON.stringify({remaining_qty:(l.remaining_qty||0)-p.take})});
+    }
+  }
+  return {ok:true};
+}
+
+async function submitOutCart() {
+  if(!outCart.length){ showToast('출고할 품목이 없습니다'); return; }
+  const cid = document.getElementById('out-client')?.value;
+  if(!cid){ showToast('거래처를 선택하세요'); return; }
+  const date = document.getElementById('out-date')?.value || fmt(TODAY);
+  const type = document.querySelector('#stock-tab-out .radio-btn.active')?.textContent?.trim() || '출고';
+  const disc = parseFloat(document.getElementById('out-client').selectedOptions[0]?.dataset.disc)||0;
+  const sharedNote = document.getElementById('out-note')?.value || '';
+  let ok=0; const errs=[];
+  // 같은 카트 내 재고 중복 차감 방지를 위해 순차 처리 (각 항목이 직전 차감 반영된 재고를 다시 조회)
+  for(const item of outCart){ item.note = sharedNote; const r = await _processOutItem(cid, date, type, disc, item); if(r.ok) ok++; else errs.push(r.msg); }
+  outCart=[]; renderOutCart();
+  showToast(errs.length ? `출고 ${ok}건 등록, 실패: ${errs.join(', ')}` : `출고 ${ok}건 등록 완료`);
+  document.getElementById('out-note').value = '';
+  await loadMasterData(); initStockPage(); loadOutLots();
+}
+
+// ── 출고 수정 (Lot 선택 + 출고가·수량 인라인 수정) ─────
+const editRowData = {};
+function _parseLot(note){ const m=(note||'').match(/Lot:\s*([^/]+)/); return m ? m[1].trim() : ''; }
+function _noteMemo(note){ return (note||'').includes('/') ? (note.split('/').slice(1).join('/').trim()) : ''; }
+
+async function loadEditList() {
+  const from = document.getElementById('edit-from')?.value;
+  const to   = document.getElementById('edit-to')?.value;
+  const cf   = document.getElementById('edit-client-filter')?.value;
+  let q = '?order=date.desc&limit=200&select=id,date,client_id,product_id,quantity,total_amount,fifo_purchase_price,note';
+  if(from) q += `&date=gte.${from}`;
+  if(to)   q += `&date=lte.${to}`;
+  if(cf)   q += `&client_id=eq.${cf}`;
+  const [rows, allLots] = await Promise.all([
+    dbQuery('stock_out', q),
+    dbQuery('stock_in', '?order=date&select=id,product_id,lot_number,remaining_qty,purchase_price'),
+  ]);
+  const cMap = Object.fromEntries(G.clients.map(c=>[c.id,c.name]));
+  const pMap = Object.fromEntries(G.products.map(p=>[p.id,p.name]));
+  const lotsByProd = {};
+  (allLots||[]).forEach(l=>{ (lotsByProd[l.product_id]=lotsByProd[l.product_id]||[]).push(l); });
+  const tb = document.getElementById('stock-edit-tbody');
+  if(!tb) return;
+  if(!rows.length){ tb.innerHTML = emptyRow(7,'해당 조건의 출고 내역이 없습니다'); return; }
+  tb.innerHTML = rows.map(r=>{
+    const curLot = _parseLot(r.note);
+    const unit = r.quantity ? Math.round((r.total_amount||0)/r.quantity) : 0;
+    const hadLot = !!curLot;
+    editRowData[r.id] = { product_id:r.product_id, oldQty:r.quantity||0, unitCost:r.fifo_purchase_price||0, note:r.note||'', hadLot };
+    const prodLots = (lotsByProd[r.product_id]||[]).filter(l=>(l.remaining_qty||0)>0);
+    let lotOpts = `<option value="auto">자동(FIFO)</option>`;
+    if(curLot) lotOpts += `<option value="keep" selected>현재: ${curLot}</option>`;
+    lotOpts += prodLots.map(l=>`<option value="${l.id}">${l.lot_number||('#'+l.id)} · 잔여 ${l.remaining_qty} · ${W(l.purchase_price)}</option>`).join('');
+    return `<tr>
+      <td>${r.date||''}</td><td>${cMap[r.client_id]||'—'}</td><td>${pMap[r.product_id]||'—'}</td>
+      <td><select class="form-control" style="min-width:150px;font-size:12px" id="edit-lot-${r.id}">${lotOpts}</select></td>
+      <td><input type="number" class="form-control" style="width:75px" value="${r.quantity||0}" min="1" id="edit-qty-${r.id}"></td>
+      <td><input type="number" class="form-control" style="width:115px" value="${unit}" step="1000" id="edit-price-${r.id}"></td>
+      <td><button class="btn btn-primary" style="padding:5px 12px;font-size:12px" onclick="saveEditRow(${r.id})">저장</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function _patchRem(id, rem){
+  return fetch(`${SUPABASE_URL}/rest/v1/stock_in?id=eq.${id}`,{method:'PATCH',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+    body: JSON.stringify({remaining_qty:rem})});
+}
+
+async function saveEditRow(id) {
+  const d = editRowData[id];
+  if(!d){ showToast('행 정보를 찾을 수 없습니다'); return; }
+  const unit = parseInt(document.getElementById('edit-price-'+id)?.value)||0;
+  const newQty = parseInt(document.getElementById('edit-qty-'+id)?.value)||0;
+  const lotVal = document.getElementById('edit-lot-'+id)?.value || 'auto';
+  if(!unit){ showToast('출고가를 입력하세요'); return; }
+  if(!newQty){ showToast('수량을 입력하세요'); return; }
+
+  const lots = await dbQuery('stock_in',
+    `?product_id=eq.${d.product_id}&order=date&select=id,lot_number,remaining_qty,purchase_price,quantity`);
+  const rem = {}, cap = {}, byName = {};
+  (lots||[]).forEach(l=>{ rem[l.id]=l.remaining_qty||0; cap[l.id]=l.quantity||l.remaining_qty||0; if(l.lot_number) byName[l.lot_number]=l; });
+
+  // 신규 추적 출고건만 재고를 되돌렸다가 다시 적용 (과거 데이터는 재고 미변경)
+  if(d.hadLot){
+    const oldName = _parseLot(d.note).split(',')[0].trim();
+    const ol = byName[oldName];
+    if(ol) rem[ol.id] = Math.min((rem[ol.id]||0)+d.oldQty, cap[ol.id]);
+  }
+
+  let newCost = d.unitCost, label = _parseLot(d.note) || '자동';
+  if(lotVal !== 'auto' && lotVal !== 'keep'){
+    // 특정 lot 지정
+    const tl = (lots||[]).find(l=>String(l.id)===String(lotVal));
+    if(!tl){ showToast('선택한 Lot을 찾을 수 없습니다'); return; }
+    newCost = tl.purchase_price; label = tl.lot_number || ('#'+tl.id);
+    if(d.hadLot){
+      if((rem[tl.id]||0) < newQty){ showToast(`Lot 잔여수량 부족 (잔여 ${rem[tl.id]||0})`); return; }
+      rem[tl.id] -= newQty;
+    }
+  } else if(d.hadLot){
+    // 자동/현재 → FIFO로 재소비
+    let need = newQty, costSum = 0; const used = [];
+    for(const l of (lots||[])){ if(need<=0)break; const a=rem[l.id]||0; if(a<=0)continue; const take=Math.min(need,a); rem[l.id]-=take; costSum+=take*l.purchase_price; used.push(l.lot_number||('#'+l.id)); need-=take; }
+    if(need>0){ showToast(`재고 부족 (가용 ${newQty-need}/${newQty})`); return; }
+    newCost = Math.round(costSum/newQty); label = used.join(',');
+  }
+  // (과거 데이터 + 자동/현재: 원가·라벨 유지)
+
+  // 재고 반영 (신규 추적건만)
+  if(d.hadLot){
+    for(const l of (lots||[])){ if(rem[l.id] !== l.remaining_qty) await _patchRem(l.id, rem[l.id]); }
+  }
+
+  const total = unit*newQty, supply = Math.round(total/1.1), vat = total - supply;
+  const margin = total - (newCost*newQty), marginRate = total>0 ? Math.round(margin/total*10000)/100 : 0;
+  const memo = _noteMemo(d.note);
+  const note = 'Lot: ' + label + (memo ? ' / '+memo : '');
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/stock_out?id=eq.${id}`,{method:'PATCH',
+    headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY,'Content-Type':'application/json','Prefer':'return=minimal'},
+    body: JSON.stringify({quantity:newQty, total_amount:total, supply_amount:supply, vat_amount:vat, fifo_purchase_price:newCost, margin_amount:margin, margin_rate:marginRate, note})});
+  if(res.ok || res.status===204 || res.status===200){
+    showToast(`수정 완료 — Lot ${label}, 수량 ${newQty}, 마진율 ${marginRate}%`);
+    await loadMasterData(); loadEditList(); initStockPage();
+  } else showToast('수정 실패');
+}
+
+// ══ 리포트 엑셀 다운로드 ═════════════════════════
+function initReportRange() {
+  // 기본값: 이번 달 1일 ~ 오늘
+  const y = TODAY.getFullYear(), m = String(TODAY.getMonth()+1).padStart(2,'0');
+  const first = `${y}-${m}-01`, today = fmt(TODAY);
+  [['rpt-from',first],['rpt-to',today],['med-rpt-from',first],['med-rpt-to',today],
+   ['edit-from',first],['edit-to',today]].forEach(([id,v])=>{
+    const el = document.getElementById(id);
+    if(el) el.value = v;
+  });
+}
+
+// 숫자서식·스타일·열너비 적용 워크시트 빌더 (header + 2차원 rows)
+const FMT_WON = '₩#,##0', FMT_NUM = '#,##0', FMT_PCT = '0.##"%"';
+const XLF = '맑은 고딕';
+const _bd = rgb => { const s = { style: 'thin', color: { rgb } }; return { top: s, bottom: s, left: s, right: s }; };
+function buildSheet(header, rows, widths, fmtMap) {
+  const aoa = [header, ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = widths.map(w => ({ wch: w }));
+  ws['!rows'] = aoa.map((_, i) => ({ hpt: i === 0 ? 24 : 19 }));
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 }; // 헤더 고정
+  const range = XLSX.utils.decode_range(ws['!ref']);
+  for (let R = 0; R <= range.e.r; R++) {
+    const isHeader = R === 0;
+    const isTotal = !isHeader && ws[XLSX.utils.encode_cell({ r: R, c: 0 })]?.v === '합계';
+    const zebra = !isHeader && !isTotal && (R % 2 === 0);
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      let cell = ws[addr];
+      if (!cell) { cell = { t: 's', v: '' }; ws[addr] = cell; }
+      const isNum = typeof cell.v === 'number';
+      if (!isHeader && isNum && fmtMap[C]) cell.z = fmtMap[C];
+      const style = {
+        font: { name: XLF, sz: 10 },
+        border: _bd('D9D9D9'),
+        alignment: { vertical: 'center', horizontal: isHeader ? 'center' : (isNum ? 'right' : (C === 0 ? 'center' : 'left')) }
+      };
+      if (isHeader) {
+        style.font = { name: XLF, sz: 10, bold: true, color: { rgb: 'FFFFFF' } };
+        style.fill = { patternType: 'solid', fgColor: { rgb: '2F5597' } };
+        style.border = _bd('1F3864');
+      } else if (isTotal) {
+        style.font = { name: XLF, sz: 10, bold: true, color: { rgb: '1F3864' } };
+        style.fill = { patternType: 'solid', fgColor: { rgb: 'D6E0F0' } };
+      } else if (zebra) {
+        style.fill = { patternType: 'solid', fgColor: { rgb: 'F2F5FB' } };
+      }
+      if (!isHeader && cell.v === '부족') style.font = { name: XLF, sz: 10, bold: true, color: { rgb: 'C00000' } };
+      cell.s = style;
+    }
+  }
+  return ws;
+}
+
+async function downloadReport(type) {
+  if(typeof XLSX === 'undefined') { showToast('엑셀 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요'); return; }
+  const isMed = type === 'med';
+  const from = document.getElementById(isMed?'med-rpt-from':'rpt-from')?.value;
+  const to   = document.getElementById(isMed?'med-rpt-to':'rpt-to')?.value;
+  if(!from || !to) { showToast('시작일과 종료일을 선택하세요'); return; }
+  if(from > to)    { showToast('시작일이 종료일보다 늦습니다'); return; }
+
+  const wb = XLSX.utils.book_new();
+  const won = n => Math.round(n || 0);
+  const rate2 = n => Math.round((n||0) * 100) / 100;
+
+  try {
+    if(isMed) {
+      const [souts, sins, pays, clients] = await Promise.all([
+        dbQuery('med_stock_out', `?date=gte.${from}&date=lte.${to}&order=date`),
+        dbQuery('med_stock_in',  `?date=gte.${from}&date=lte.${to}&order=date`),
+        dbQuery('med_payments',  `?date=gte.${from}&date=lte.${to}&select=client_id,amount`),
+        dbQuery('med_clients',   '?select=id,hospital_name'),
+      ]);
+      if(!(souts||[]).length && !(sins||[]).length) { showToast('해당 기간에 데이터가 없습니다'); return; }
+      const cMap = Object.fromEntries((clients||[]).map(c=>[c.id,c.hospital_name]));
+
+      // 납품 상세
+      if((souts||[]).length){
+        const outRows = souts.map(r=>{
+          const total=r.total_amount||0, supply=won(total/1.1);
+          return [r.date||'', cMap[r.client_id]||'', r.product_name||'', r.manufacturer||'',
+                  r.is_purchased||'', r.payment_method||'', supply, total-supply, total, r.commission||0, r.note||''];
+        });
+        const t=['합계','','','','','',0,0,0,0,'']; outRows.forEach(r=>{t[6]+=r[6];t[7]+=r[7];t[8]+=r[8];t[9]+=r[9];}); outRows.push(t);
+        XLSX.utils.book_append_sheet(wb, buildSheet(
+          ['날짜','병원','장비명','장비사','구분','결제방식','공급가액','부가세','합계(납품금액)','수수료','메모'],
+          outRows,[12,16,18,12,8,9,14,11,14,10,16],{6:FMT_WON,7:FMT_WON,8:FMT_WON,9:FMT_WON}), '납품 상세');
+      }
+      // 매입 상세
+      if((sins||[]).length){
+        const inRows = sins.map(r=>{
+          const total=(r.quantity||1)*(r.purchase_price||r.sale_price||0), supply=won(total/1.1);
+          return [r.date||'', r.product_name||'', r.manufacturer||'', r.purchase_price||r.sale_price||0, supply, total-supply, total, r.serial_number||''];
+        });
+        const t=['합계','','',null,0,0,0,'']; inRows.forEach(r=>{t[4]+=r[4];t[5]+=r[5];t[6]+=r[6];}); inRows.push(t);
+        XLSX.utils.book_append_sheet(wb, buildSheet(
+          ['날짜','장비명','장비사','단가','매입가액(공급가액)','부가세','합계','시리얼'],
+          inRows,[12,18,12,12,15,10,12,14],{3:FMT_WON,4:FMT_WON,5:FMT_WON,6:FMT_WON}), '매입 상세');
+      }
+      // 병원별 요약
+      if((souts||[]).length){
+        const so={}, sp={}; souts.forEach(r=>{so[r.client_id]=(so[r.client_id]||0)+(r.total_amount||0);});
+        (pays||[]).forEach(r=>{sp[r.client_id]=(sp[r.client_id]||0)+(r.amount||0);});
+        const rows=Object.keys(so).map(id=>{const o=so[id]||0,p=sp[id]||0;return [cMap[id]||'',o,p,Math.max(0,o-p)];});
+        const t=['합계',0,0,0]; rows.forEach(r=>{t[1]+=r[1];t[2]+=r[2];t[3]+=r[3];}); rows.push(t);
+        XLSX.utils.book_append_sheet(wb, buildSheet(
+          ['병원','납품금액합계','수금액합계','미수금'],rows,[16,14,12,12],{1:FMT_WON,2:FMT_WON,3:FMT_WON}), '병원별 요약');
+        // 월별 납품
+        const mm={}; souts.forEach(r=>{const k=(r.date||'').slice(0,7);mm[k]=(mm[k]||0)+(r.total_amount||0);});
+        const mr=Object.keys(mm).sort().map(k=>[k,mm[k]]); const mt=['합계',0]; mr.forEach(r=>mt[1]+=r[1]); mr.push(mt);
+        XLSX.utils.book_append_sheet(wb, buildSheet(['월','납품금액'],mr,[11,14],{1:FMT_WON}), '월별 납품');
+      }
+      XLSX.writeFile(wb, `의료장비_리포트_${from}_${to}.xlsx`);
+      showToast(`엑셀 다운로드 완료 — 납품 ${(souts||[]).length}건`);
+      return;
+    }
+
+    // ── 화장품 ──
+    const [souts, sins, pays, sinsAll] = await Promise.all([
+      dbQuery('stock_out', `?date=gte.${from}&date=lte.${to}&order=date`),
+      dbQuery('stock_in',  `?date=gte.${from}&date=lte.${to}&order=date`),
+      dbQuery('payments',  `?date=gte.${from}&date=lte.${to}&select=client_id,amount`),
+      dbQuery('stock_in',  '?select=product_id,remaining_qty'),
+    ]);
+    if(!(souts||[]).length && !(sins||[]).length) { showToast('해당 기간에 데이터가 없습니다'); return; }
+    const cMap = Object.fromEntries((G.clients||[]).map(c=>[c.id,c.name]));
+    const pMap = Object.fromEntries((G.products||[]).map(p=>[p.id,p.name]));
+
+    // 입고 상세
+    if((sins||[]).length){
+      const inRows = sins.map(r=>{
+        const total=(r.quantity||0)*(r.purchase_price||0), supply=won(total/1.1);
+        return [r.date||'', pMap[r.product_id]||'', r.quantity||0, r.purchase_price||0, supply, total-supply, total];
+      });
+      const t=['합계',null,0,null,0,0,0]; inRows.forEach(r=>{t[2]+=r[2];t[4]+=r[4];t[5]+=r[5];t[6]+=r[6];}); inRows.push(t);
+      XLSX.utils.book_append_sheet(wb, buildSheet(
+        ['날짜','품목','수량','단가','입고가액(공급가액)','부가세','합계'],
+        inRows,[14,17,6,9,16,9,11],{2:FMT_NUM,3:FMT_WON,4:FMT_WON,5:FMT_WON,6:FMT_WON}), '입고 상세');
+    }
+    // 출고 상세
+    if((souts||[]).length){
+      const outRows = souts.map(r=>{
+        const total=r.total_amount||0, supply=won(total/1.1), margin=r.margin_amount||0;
+        return [r.date||'', cMap[r.client_id]||'', pMap[r.product_id]||'', r.quantity||0,
+                Math.round((r.discount_rate||0)*100), supply, total-supply, total, total-margin, margin,
+                r.margin_rate!=null?rate2(r.margin_rate):'', r.note||''];
+      });
+      const t=['합계',null,null,0,null,0,0,0,0,0,'',null];
+      outRows.forEach(r=>{t[3]+=r[3];t[5]+=r[5];t[6]+=r[6];t[7]+=r[7];t[8]+=r[8];t[9]+=r[9];});
+      t[10]= t[7]>0 ? rate2(t[9]/t[7]*100) : ''; outRows.push(t);
+      XLSX.utils.book_append_sheet(wb, buildSheet(
+        ['날짜','거래처','품목','수량','할인율(%)','출고가액(공급가액)','부가세','합계(납품금액)','매입원가합계','마진액','마진율(%)','메모'],
+        outRows,[14,13,19,6,10,16,10,14,12,10,10,8],
+        {3:FMT_NUM,4:FMT_PCT,5:FMT_WON,6:FMT_WON,7:FMT_WON,8:FMT_WON,9:FMT_WON,10:FMT_PCT}), '출고 상세');
+      // 거래처별 요약
+      const so={}, sm={}, sp={};
+      souts.forEach(r=>{so[r.client_id]=(so[r.client_id]||0)+(r.total_amount||0); sm[r.client_id]=(sm[r.client_id]||0)+(r.margin_amount||0);});
+      (pays||[]).forEach(r=>{sp[r.client_id]=(sp[r.client_id]||0)+(r.amount||0);});
+      const cr=Object.keys(so).map(id=>{const o=so[id]||0,p=sp[id]||0,m=sm[id]||0;return [cMap[id]||'',o,p,Math.max(0,o-p),m,o>0?rate2(m/o*100):''];}).sort((a,b)=>b[1]-a[1]);
+      const ct=['합계',0,0,0,0,'']; cr.forEach(r=>{ct[1]+=r[1];ct[2]+=r[2];ct[3]+=r[3];ct[4]+=r[4];}); cr.push(ct);
+      XLSX.utils.book_append_sheet(wb, buildSheet(
+        ['거래처','납품금액합계','수금액합계','미수금','마진액합계','평균마진율(%)'],
+        cr,[13,13,11,12,11,12],{1:FMT_WON,2:FMT_WON,3:FMT_WON,4:FMT_WON,5:FMT_PCT}), '거래처별 요약');
+      // 월별 매출 (평균마진율 = 건별 마진율의 단순 평균)
+      const ms={}, mm={}, mrs={}, mcn={};
+      souts.forEach(r=>{const k=(r.date||'').slice(0,7); ms[k]=(ms[k]||0)+(r.total_amount||0); mm[k]=(mm[k]||0)+(r.margin_amount||0);
+        if(r.margin_rate!=null){mrs[k]=(mrs[k]||0)+r.margin_rate; mcn[k]=(mcn[k]||0)+1;}});
+      const mr=Object.keys(ms).sort().map(k=>[k,ms[k],mm[k], mcn[k]?rate2(mrs[k]/mcn[k]):'']);
+      const mt=['합계',0,0,'']; mr.forEach(r=>{mt[1]+=r[1];mt[2]+=r[2];}); mr.push(mt);
+      XLSX.utils.book_append_sheet(wb, buildSheet(
+        ['월','납품금액','마진액','평균마진율(%)'],mr,[11,13,11,12],{1:FMT_WON,2:FMT_WON,3:FMT_PCT}), '월별 매출');
+    }
+    // 재고 현황 (현재 기준 스냅샷)
+    if((G.products||[]).length){
+      const stockMap={}; (sinsAll||[]).forEach(r=>{stockMap[r.product_id]=(stockMap[r.product_id]||0)+(r.remaining_qty||0);});
+      const rows=(G.products||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'')).map(p=>{
+        const cur=stockMap[p.id]||0, min=p.min_stock||0;
+        return [p.name||'', p.spec||'', p.purchase_price||0, p.sale_price||0, cur, min, cur<min?'부족':'정상'];
+      });
+      XLSX.utils.book_append_sheet(wb, buildSheet(
+        ['제품명','규격','공급가','납품가','현재고','최소재고','재고상태'],
+        rows,[19,16,10,10,7,8,8],{2:FMT_WON,3:FMT_WON,4:FMT_NUM,5:FMT_NUM}), '재고 현황');
+    }
+
+    XLSX.writeFile(wb, `SC-MSO_리포트_${from}_${to}.xlsx`);
+    showToast(`엑셀 다운로드 완료 — 출고 ${(souts||[]).length}건`);
+  } catch(e) { showToast('리포트 생성 실패'); }
+}
+
+// ══ 계약서 발급 (.docx, 양식 업로드 + 플레이스홀더 치환) ══
+const TMPL_KEY = 'med-contract-tmpl', TMPL_NAME_KEY = 'med-contract-tmpl-name';
+
+function _downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+function _b64ToU8(b64) {
+  const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+
+function refreshTemplateStatus() {
+  const has = !!localStorage.getItem(TMPL_KEY);
+  const st = document.getElementById('tmpl-status');
+  const dl = document.getElementById('tmpl-dl-btn'), del = document.getElementById('tmpl-del-btn');
+  if (!st) return;
+  if (has) {
+    st.innerHTML = '✓ 양식 등록됨 — <b>' + (localStorage.getItem(TMPL_NAME_KEY) || '계약서양식.docx') + '</b>';
+    st.style.color = '#4ade80';
+    if (dl) dl.style.display = ''; if (del) del.style.display = '';
+  } else {
+    st.textContent = '등록된 양식이 없습니다. .docx 양식을 업로드하세요.';
+    st.style.color = '';
+    if (dl) dl.style.display = 'none'; if (del) del.style.display = 'none';
+  }
+}
+
+function uploadTemplate() {
+  const inp = document.getElementById('tmpl-file');
+  const file = inp?.files?.[0];
+  if (!file) { showToast('업로드할 .docx 파일을 선택하세요'); return; }
+  if (!file.name.toLowerCase().endsWith('.docx')) { showToast('.docx 파일만 업로드할 수 있습니다'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const b64 = String(reader.result).split(',')[1]; // data URL → base64
+      localStorage.setItem(TMPL_KEY, b64);
+      localStorage.setItem(TMPL_NAME_KEY, file.name);
+      inp.value = '';
+      refreshTemplateStatus();
+      showToast('양식이 저장되었습니다 (브라우저에 보관)');
+    } catch (e) {
+      showToast('저장 실패 — 파일이 너무 크거나 저장공간이 부족합니다');
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function downloadTemplate() {
+  const b64 = localStorage.getItem(TMPL_KEY);
+  if (!b64) { showToast('등록된 양식이 없습니다'); return; }
+  const blob = new Blob([_b64ToU8(b64)], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  _downloadBlob(blob, localStorage.getItem(TMPL_NAME_KEY) || '계약서양식.docx');
+}
+
+function deleteTemplate() {
+  localStorage.removeItem(TMPL_KEY); localStorage.removeItem(TMPL_NAME_KEY);
+  refreshTemplateStatus();
+  showToast('양식이 삭제되었습니다');
+}
+
+// 입력값으로 양식을 채워 .docx Blob 생성 — 미리보기/다운로드 공용
+function _buildContractBlob() {
+  const b64 = localStorage.getItem(TMPL_KEY);
+  if (!b64) { showToast('먼저 계약서 양식(.docx)을 업로드하세요'); return null; }
+  if (typeof PizZip === 'undefined' || typeof docxtemplater === 'undefined') {
+    showToast('문서 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요'); return null;
+  }
+  const hosp = document.getElementById('cont-hosp')?.value?.trim();
+  const price = parseInt(document.getElementById('cont-price')?.value || 0);
+  if (!hosp) { showToast('병원명을 입력하세요'); return null; }
+  if (!price) { showToast('공급가격을 입력하세요'); return null; }
+  const data = {
+    병원명: hosp,
+    대표자명: document.getElementById('cont-ceo')?.value?.trim() || '',
+    소재지: document.getElementById('cont-addr')?.value?.trim() || '',
+    제품명: document.getElementById('cont-prod')?.value?.trim() || '',
+    공급가격: '₩' + Number(price).toLocaleString() + '원',
+    계약일자: fmt(TODAY),
+  };
+  try {
+    const zip = new PizZip(b64, { base64: true });
+    const doc = new docxtemplater(zip, {
+      delimiters: { start: '{{', end: '}}' },
+      paragraphLoop: true, linebreaks: true, nullGetter: () => '',
+    });
+    doc.render(data);
+    const blob = doc.getZip().generate({
+      type: 'blob',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    return { blob, hosp };
+  } catch (e) {
+    const msg = e?.properties?.errors?.[0]?.properties?.explanation || e?.message || '';
+    showToast('계약서 생성 오류' + (msg ? ' — ' + msg : ''));
+    return null;
+  }
+}
+
+async function previewContract() {
+  const r = _buildContractBlob();
+  if (!r) return;
+  if (typeof docx === 'undefined' || !docx.renderAsync) { showToast('미리보기 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요'); return; }
+  const wrap = document.getElementById('cont-preview-wrap');
+  const cont = document.getElementById('cont-preview');
+  cont.innerHTML = '';
+  wrap.style.display = 'block';
+  try {
+    await docx.renderAsync(r.blob, cont, null, { inWrapper: true, className: 'docx', ignoreLastRenderedPageBreak: true });
+    showToast('미리보기를 생성했습니다');
+    wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    cont.innerHTML = '<div style="color:#fca5a5;padding:20px;text-align:center">미리보기를 표시할 수 없습니다. 양식 파일을 확인해주세요.</div>';
+    showToast('미리보기 렌더 실패');
+  }
+}
+
+function generateContract() {
+  const r = _buildContractBlob();
+  if (!r) return;
+  _downloadBlob(r.blob, `계약서_${r.hosp}_${fmt(TODAY)}.docx`);
+  showToast('계약서가 생성되었습니다');
+}
+
+// ══ 설정 패널 ════════════════════════════════════
+const DEFAULT_LABELS = {
+  appname: 'MSO 통합 관리 시스템',
+  catCosm: '화장품', catMed: '의료장비',
+  cosm: ['리포트','영업 관리','수금 현황','기초 관리'],
+  med:  ['리포트','영업 관리','수금 현황','기초 관리'],
+};
+
+function openSettings() {
+  // 현재 값 설정 input에 채우기
+  const s = loadSettingsData();
+  document.getElementById('s-appname').value  = s.appname  || '';
+  document.getElementById('s-cat-cosm').value = s.catCosm  || '';
+  document.getElementById('s-cat-med').value  = s.catMed   || '';
+  [0,1,2,3].forEach(i => {
+    document.getElementById('s-cosm-'+i).value = s.cosm?.[i] || '';
+    document.getElementById('s-med-'+i).value  = s.med?.[i]  || '';
+  });
+  // 테마 버튼 상태
+  const isDark = !document.documentElement.classList.contains('light');
+  document.getElementById('theme-dark-btn').classList.toggle('active', isDark);
+  document.getElementById('theme-light-btn').classList.toggle('active', !isDark);
+  document.getElementById('settings-overlay').classList.add('open');
+  document.getElementById('settings-panel').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settings-overlay').classList.remove('open');
+  document.getElementById('settings-panel').classList.remove('open');
+}
+
+const SVG_MOON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const SVG_SUN = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+
+function applyTheme(mode) {
+  if(mode==='light') {
+    document.documentElement.classList.add('light');
+    document.getElementById('theme-toggle-btn').innerHTML = SVG_SUN;
+  } else {
+    document.documentElement.classList.remove('light');
+    document.getElementById('theme-toggle-btn').innerHTML = SVG_MOON;
+  }
+  document.getElementById('theme-dark-btn').classList.toggle('active', mode==='dark');
+  document.getElementById('theme-light-btn').classList.toggle('active', mode==='light');
+  localStorage.setItem('thesc-theme', mode);
+}
+
+function toggleTheme() {
+  const isLight = document.documentElement.classList.contains('light');
+  applyTheme(isLight ? 'dark' : 'light');
+}
+
+function loadSettingsData() {
+  try { return JSON.parse(localStorage.getItem('thesc-settings') || '{}'); }
+  catch(e) { return {}; }
+}
+
+function applyLabels(s) {
+  const D = DEFAULT_LABELS;
+  document.getElementById('nav-appname').textContent    = s.appname  || D.appname;
+  document.getElementById('cat-label-cosm').textContent = s.catCosm  || D.catCosm;
+  document.getElementById('cat-label-med').textContent  = s.catMed   || D.catMed;
+  [0,1,2,3].forEach(i => {
+    const cl = document.getElementById('menu-cosm-'+i);
+    const ml = document.getElementById('menu-med-'+i);
+    if(cl) cl.textContent = s.cosm?.[i] || D.cosm[i];
+    if(ml) ml.textContent = s.med?.[i]  || D.med[i];
+  });
+}
+
+function applySettings() {
+  const s = {
+    appname: document.getElementById('s-appname').value.trim()  || DEFAULT_LABELS.appname,
+    catCosm: document.getElementById('s-cat-cosm').value.trim() || DEFAULT_LABELS.catCosm,
+    catMed:  document.getElementById('s-cat-med').value.trim()  || DEFAULT_LABELS.catMed,
+    cosm: [0,1,2,3].map(i => document.getElementById('s-cosm-'+i).value.trim() || DEFAULT_LABELS.cosm[i]),
+    med:  [0,1,2,3].map(i => document.getElementById('s-med-'+i).value.trim()  || DEFAULT_LABELS.med[i]),
+  };
+  localStorage.setItem('thesc-settings', JSON.stringify(s));
+  applyLabels(s);
+  closeSettings();
+  showToast('설정이 저장되었습니다');
+}
+
+function resetSettings() {
+  localStorage.removeItem('thesc-settings');
+  applyLabels({});
+  closeSettings();
+  showToast('설정을 초기화했습니다');
+}
+
+function loadSettings() {
+  // 테마
+  const theme = localStorage.getItem('thesc-theme') || 'dark';
+  applyTheme(theme);
+  // 레이블
+  applyLabels(loadSettingsData());
+}
+
+// ── 초기 실행 ────────────────────────────────────
+window.addEventListener('load', async () => {
+  loadSettings();
+  initReportRange();
+  await loadMasterData();
+  initDashboard();
+});
+</script>
+</body>
+</html>
